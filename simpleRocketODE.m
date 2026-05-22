@@ -1,0 +1,38 @@
+function dxdt = simpleRocketODE(t,x,u,I,m,p_bB)
+    % Variables for ODE: x = [p_cm; v; omegaB; A_vec]
+    % p_cm: Position of center mass, relative to inertial
+    % v: Velocity of center mass, relative to inertial
+    % omegaB: Angular velocity, relative to body
+    % A_vec: DCM matrix of attitude in vector form 
+
+    % Input variables:
+    % x: state vector
+    % u: lateral jets (2x1 input acceleration)
+    % I: Inertial momentum matrix diagonal
+    % m: mass of rocket
+    % p_bB: Point of application of lateral jets (u)
+    
+    g = 9.8;
+
+    p_cm = x(1:3);
+    v = x(4:6);
+    omegaB = x(7:9);
+    A_vec = x(10:end);
+
+    A = reshape(A_vec,3,[]);
+    J = diag(I);
+    omegaB_cr = crossprodmat(omegaB);
+
+    %aB = R1(u(2))*R3(u(1))*[u(3);0;0] %  Linear acceleration in relation to body
+    aB = u;
+    tauB = crossprodmat(p_bB)*(m*aB); % Torque vector in relation to body
+
+    p_cmdot = v;
+    vdot = A*aB+[0;0;-g];
+    omegaBdot = J\(tauB-omegaB_cr*J*omegaB);
+    Adot = omegaB_cr*A;
+    Adot_vec = reshape(Adot,[],1);
+
+    dxdt = [p_cmdot; vdot; omegaBdot; Adot_vec];
+
+end

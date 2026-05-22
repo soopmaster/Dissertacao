@@ -1,0 +1,5 @@
+function u = PDfunc(xk,ref,Ts,Kp,Kd)
+%UNTITLED Summary of this function goes here
+%   xk = [p; v]
+%   ref = reference valu
+end
