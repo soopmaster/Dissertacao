@@ -4,7 +4,7 @@ function vehi_vec = init_all_vehi(Ts)
 
 vehi_vec = cell(1,2);
 
-vehi_vec{1}.vehiSt = init_QuadDrone(Ts);
-vehi_vec{2}.vehiSt = init_QuadDrone(Ts);
+vehi_vec{1}.vehiSt = init_QuadDroneMellinger(Ts);
+vehi_vec{2}.vehiSt = init_QuadDroneMellinger(Ts);
 
 end

@@ -42,8 +42,6 @@ function vehiStruct = init_QuadDrone(Ts)
 % v: Velocity of center mass, relative to inertial
 % omegaB: Angular velocity, relative to body
 % A_vec: DCM matrix of attitude in vector form
-% F: Thrust force
-% dF: Derivative of thrust force
 
 % y = [px; py; pz; omegaB3]
 
@@ -108,7 +106,7 @@ varmin = [-0.*ones(3,1); -0.*ones(3,1); -0.*ones(9,1); -0.*ones(3,1); Fmin; 0];
 varmax = [0.*ones(3,1); 0.*ones(3,1); 0.*ones(9,1); 0.*ones(3,1); Fmax; 0];
 varbounds = [varmin, varmax];
 tauBmax = 0.0007*pi;
-%tauBmax = 0.01*pi;
+%tauBmax = 1;
 vehiStruct.tauBmax = tauBmax;
 ubounds_max = [0; tauBmax.*ones(3,1)];
 ubounds_min = [0; -tauBmax.*ones(3,1)];
@@ -155,7 +153,7 @@ alph0=rad_sqr.*alph0_pre;
 vehiStruct.alph0 = alph0;
 
 % === Initialize Auxiliary variables for snap controller === %
-K_val = 50;
+K_val = 1;
 vehiStruct.K1 = 1*K_val.*eye(3); % dddp
 vehiStruct.K2 = 1*K_val.*eye(3); % ddp
 vehiStruct.K3 = 1*K_val.*eye(3);   % dp
@@ -171,7 +169,14 @@ vehiStruct.contrlFunc = @(x,ref) quadController(x,ref,vehiStruct);
 end
 
 function ref = quadDrone_traj(t,pts,vehi)
-    [r,dr,ddr,dddr] = trajectory3Dv2(t, vehi.Ts, pts(1:3,:), pts(4:6,:), pts(7:9,:), pts(10:12,:));
+    order = size(pts,1)/3;
+    switch order
+        case 2
+            [r,dr,ddr,dddr] = trajectory3Dv2(t, vehi.Ts, pts(1:3,:), pts(4:6,:));
+        case 4
+            [r,dr,ddr,dddr] = trajectory3Dv2(t, vehi.Ts, pts(1:3,:), pts(4:6,:), pts(7:9,:), pts(10:12,:));
+    end
+    %[r,dr,ddr,dddr] = trajectory3Dv2(t, vehi.Ts, pts(1:3,:), pts(4:6,:), pts(7:9,:), pts(10:12,:));
     ref = [r; dr; ddr; dddr];
 end
 

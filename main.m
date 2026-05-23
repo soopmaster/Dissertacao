@@ -22,7 +22,7 @@ simT = 5; % Sim time seconds
 Ts = 0.01;
 knum = simT/Ts;
 inner_step = 20;
-enable_prmtp = 1;
+enable_prmtp = 0;
 
 % === Init vehiStruct === &
 vehi_vec = init_all_vehi(Ts); % Cell vec with vehiSimStruct
@@ -43,8 +43,25 @@ ops.plot.wirestyle=':';
 ops.plot.edgecolor="#11F4BF";
 vehi_vec{2}.ops = ops;
 
+% === Init Plot Obs === %
+L = 0.5;
+p_NB = [L;0;0];
+p_SB = [-L;0;0];
+p_EB = [0;L;0];
+p_OB = [0;-L;0];
+p_vec = [p_NB; p_EB; p_SB; p_OB];
+vehi_vec{1}.p_vec = p_vec;
+
+L = 0.5;
+p_NB = [L;0;0];
+p_SB = [-L;0;0];
+p_EB = [0;L;0];
+p_OB = [0;-L;0];
+p_vec = [p_NB; p_EB; p_SB; p_OB];
+vehi_vec{2}.p_vec = p_vec;
+
 trajt{1} = [0 1 4];
-p1_ref = [0;0;1];
+p1_ref = [.5;-.5;.5];
 v1_ref = [0;0;0];
 a1_ref = [0;0;0];
 j1_ref = [0;0;0];
@@ -57,7 +74,7 @@ pts_ref{1}(1:6,1) = vehi_vec{1}.vehiSt.x0(1:6);
 pts_ref{1}(:,2) = [p1_ref; v1_ref; a1_ref; j1_ref];
 pts_ref{1}(:,end) = [p2_ref; v2_ref; a2_ref; j2_ref];
 
-trajt{2} = [0 1 4];
+trajt{2} = [0 4];
 p1_ref = [0;0;1];
 v1_ref = [0;0;0];
 a1_ref = [0;0;0];
@@ -68,7 +85,7 @@ a2_ref = [0;0;0];
 j2_ref = [0;0;0];
 pts_ref{2} = zeros(3*4,length(trajt{2}));
 pts_ref{2}(1:6,1) = vehi_vec{2}.vehiSt.x0(1:6);
-pts_ref{2}(:,2) = [p1_ref; v1_ref; a1_ref; j1_ref];
+%pts_ref{2}(:,2) = [p1_ref; v1_ref; a1_ref; j1_ref];
 pts_ref{2}(:,end) = [p2_ref; v2_ref; a2_ref; j2_ref];
 for ind=1:numVehi
     vehi = vehi_vec{ind};
@@ -105,9 +122,14 @@ xlabel('$x$','Interpreter','latex');
 ylabel('$y$','Interpreter','latex');
 zlabel('$z$','Interpreter','latex');
 for ind=1:numVehi
+    p_vec = vehi_vec{ind}.p_vec;
+
+    Xvec = [p_vec(1:3:12)];
+    Yvec = [p_vec(2:3:12)];
+    Zvec = [p_vec(3:3:12)];
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref{ind}(1,:),pts_ref{ind}(2,:),pts_ref{ind}(3,:),'xr','DisplayName','target');
     vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'r','DisplayName','r_T');
-    %bodyPlot{ind} = patch(x(1,1), x(2,1), x(3,1), [0 0 1]);
+    vehi_vec{ind}.bodyPlot = patch(Xvec, Yvec, Zvec, [0 0 1],'DisplayName','Drone Body');
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
 
@@ -155,12 +177,21 @@ for k=1:knum-1
         % === Calculate System === %
         dynFunc = vehi.vehiSt.dynFunc;
         vehi.x(:,k+1) = runge_kutta4(@(y) dynFunc(y,vehi.u(:,k)), Ts, vehi.x(:,k));
+
+        bodyFunc = vehi.vehiSt.bodyFunc; 
+        p_vec = bodyFunc(vehi.x(:,k), vehi.p_vec);
+        Xvec = [p_vec(1:3:12)];
+        Yvec = [p_vec(2:3:12)];
+        Zvec = [p_vec(3:3:12)];
+        vehi.bodyPlot.XData = Xvec;
+        vehi.bodyPlot.YData = Yvec;
+        vehi.bodyPlot.ZData = Zvec;
         
         addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
 
         vehi_vec{kVehi} = vehi;
 
-        legend({'target', 'r_T', 'Path'});
+        %legend({'target', 'r_T', 'Path'});
         drawnow;
         pause(Ts);
     end

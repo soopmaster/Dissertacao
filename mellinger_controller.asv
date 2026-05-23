@@ -1,0 +1,85 @@
+function u = mellinger_controller(KK,p_ref,dp_ref,ddp_ref,dddp_ref,yaw_ref,dyaw_ref,x,F,dF,I,m)
+% MELLINGER CONTROLLER snap controller for a 6DoF Euler-Angle-Free quadrotor
+% drone model
+%   Based on https://github.com/yorgoon/minimum-snap-geometric-control
+
+% INPUT:
+%   KK : Linear Gain Matrices
+%   d..p_ref : Spatial Coordinates of Reference
+%   d..yaw_ref : Yaw of Reference
+%   x : Drone's State-Space vector
+%   d..F : Previous Thrust Force
+%   I : Inertial momentum matrix diagonal
+%   m : mass of drone
+% OUTPUT:
+%   ddF_des : Desired Thrust second derivative (must be integrated outside)
+%   domega_des : Desired Angular velocity first derivative (is used to calculate tau_des outside)
+
+p = x(1:3);
+v = x(4:6);
+A_vec = x(7:15);
+A = reshape(A_vec,3,[]);
+omega = x(16:end);
+
+J = diag(I);
+g = 9.8;
+
+% Inertial Frame cardinal vecs
+iI = [1;0;0];
+jI = [0;1;0];
+kI = [0;0;1];
+
+% Body Frame cardinal vecs to Inertial Frame
+iB = A*[1;0;0];
+jB = A*[0;1;0];
+kB = A*[0;0;1];
+
+% Heading vector
+h_aux = (iB'*iI).*iI+(iB'*jI).*jI;
+h = h_aux/norm(h_aux);
+kId = crossprodmat(kI)*h;
+hd = [cos(yaw_ref) sin(yaw_ref) 0]; % Target heading
+kITd = crossprodmat(kI)*hd;
+
+% pos error
+ep = p-p_ref;
+% vel error
+ev = v-dp_ref;
+% accel error
+%calc_acc = dF/m*kB;
+%ea = calc_acc-ddp_ref;
+
+% desired force
+Fd = -KK.Kp.*ep -KK.Kv.*ev + m*ddp_ref + m*g*kI;
+pdes = Fd'*kB;
+
+kBd = Fd(:)/norm(Fd(:));
+
+jBd_aux = crossprodmat(kBd)*hd;
+jBd = jBd_aux/norm(jBd_aux);
+
+iBd = crossprodmat(jBd)*kBd;
+
+% Desired force derivative
+%dFd = -KK.Kp*ev -KK.Kv*ea + m*dddp_ref;
+%dpdes = dFd'*kB;
+% desired rotation, 
+Rd = [iBd jBd kBd];
+
+eR = 1/2*crossprodvec(Rd'*A-A'*Rd);
+
+%h_om = m/pdes*(dddp_ref-dpdes*kBd);
+h_om = m/pdes*(dddp_ref-(kBd'*dddp_ref)*kBd);
+omegaIT = -h_om'*jBd;
+omegaJT = h_om'*iBd;
+%omegaKT = (omegaJT*kITd'*kBd+dyaw_ref*hd'*iBd)/(kITd'*jBd);
+omegaKT = (dyaw_ref*kI)'*kBd;
+omegaT = [omegaIT; omegaJT; omegaKT];
+
+eom = omega-omegaT;
+
+tau_des = -KK.KR*eR-KK.Kom*eom;
+
+u = [pdes; tau_des];
+
+end
