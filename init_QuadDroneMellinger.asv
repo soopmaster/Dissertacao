@@ -1,4 +1,4 @@
-function vehiStruct = init_QuadDrone(Ts)
+function vehiStruct = init_QuadDroneMellinger(Ts)
 %INIT_QUADDRONE outputs vehiStruct of quadDrone
 %   
 % vehiStruct : struct (struct with components of quadDrone)
@@ -19,6 +19,7 @@ function vehiStruct = init_QuadDrone(Ts)
 %   .dynFunc
 %   .jacFunc
 %   .contrlFunc
+%   .bodyFunc
 % AUXILIARY (does not interface with main.m)
 %   .Ts
 %   .M : num                       (mass)
@@ -90,21 +91,21 @@ xsym=[psym; vsym; Avecsym; omegaBsym];
 symvars_ext = [xsym;usym];
 vehiStruct.symvars = symvars_ext;
 
-dxsym = quadDroneSnapODE(xsym,usym,I,M,niu_v,niu_w);
+dxsym = quadDroneODE(xsym,usym,I,M,niu_v,niu_w);
 %dxsym = quadDroneSnapODE(xsym,usym,Isym,Msym,niu_vsym,niu_wsym);
 
 Df = jacobian(dxsym, xsym);
 
 % === Bounds of state and input variables == %
-Fmax = 15;
+Fmax = 20;
 vehiStruct.Fmax = Fmax;
 Fmin = 0.0001;
 vehiStruct.Fmin = Fmin;
 varmin = [-0.*ones(3,1); -0.*ones(3,1); -0.*ones(9,1); -0.*ones(3,1)];
 varmax = [0.*ones(3,1); 0.*ones(3,1); 0.*ones(9,1); 0.*ones(3,1)];
 varbounds = [varmin, varmax];
-tauBmax = 0.0007*pi;
-%tauBmax = 1;
+%tauBmax = 0.0007*pi;
+tauBmax = pi;
 vehiStruct.tauBmax = tauBmax;
 ubounds_max = [0; tauBmax.*ones(3,1)];
 ubounds_min = [0; -tauBmax.*ones(3,1)];
@@ -144,20 +145,43 @@ vehiStruct.ysim0 = rad_sqr;
 alph0=rad_sqr.*alph0_pre;
 vehiStruct.alph0 = alph0;
 
-% === Initialize Auxiliary variables for snap controller === %
+% === Initialize Auxiliary variables for mellinger controller === %
 K_val = 1;
-vehiStruct.K1 = 1*K_val.*eye(3); % dddp
-vehiStruct.K2 = 1*K_val.*eye(3); % ddp
-vehiStruct.K3 = 1*K_val.*eye(3);   % dp
-vehiStruct.K4 = 1*K_val.*eye(3);        % p
-vehiStruct.K5 = K_val.*eye(1); % dyaw
-vehiStruct.K6 = K_val.*eye(1); % yaw
+KK.Kp = 1*K_val.*eye(3); % dddp
+KK.Kv = 1*K_val.*eye(3); % ddp
+KK.KR = 1*K_val.*eye(3);   % dp
+KK.Kom = 1*K_val.*eye(3);        % p
+vehiStruct.KK = KK;
+
+% === Plot Object === %
+L = 0.5;
+p_NB = [L;0;0];
+p_SB = [-L;0;0];
+p_EB = [0;L;0];
+p_OB = [0;-L;0];
+p_vec = [p_NB; p_EB; p_SB; p_OB];
+
+Xvec = [p_vec(1:3:12)];
+Yvec = [p_vec(2:3:12)];
+Zvec = [p_vec(3:3:12)];
+vehiStruct.bodyPlot = patch(Xvec, Yvec, Zvec, [0 0 1]);
 
 % === Specific Function Handles === %
-vehiStruct.dynFunc = @(y,u) quadDroneSnapODE(y,u,I,M,niu_v,niu_w);
-vehiStruct.jacFunc = @(x,u) quadDroneSnap_jac([x;u],I,M,niu_v,niu_w);
+vehiStruct.dynFunc = @(y,u) quadDroneODE(y,u,I,M,niu_v,niu_w);
+vehiStruct.jacFunc = @(x,u) quadDrone_jac([x;u],I,M,niu_v,niu_w);
 vehiStruct.trajFunc = @(t,pts) quadDrone_traj(t,pts,vehiStruct);
 vehiStruct.contrlFunc = @(x,ref) quadController(x,ref,vehiStruct);
+vehiStruct.bodyFunc = @(x) plotFunc(x,p_vec);
+end
+
+function plotFunc(x, p_vec)
+p_vec = kron(eye(4),reshape(x(7:15),3,[]))*p_vec + [x(1:3); x(1:3); x(1:3); x(1:3)];
+Xvec = [p_vec(1:3:12)];
+Yvec = [p_vec(2:3:12)];
+Zvec = [p_vec(3:3:12)];
+vehi.bodyPlot.XData = Xvec;
+vehi.bodyPlot.YData = Yvec;
+vehi.bodyPlot.ZData = Zvec;
 end
 
 function ref = quadDrone_traj(t,pts,vehi)
@@ -180,19 +204,16 @@ function u = quadController(x, ref, vehi)
     yaw_ref = ref(13);
     dyaw_ref = ref(14);
 
-    % Clamp F to bounds
-    x(19)=min(max(x(19),vehi.Fmin),vehi.Fmax);
-    [~,~,~,ddF_des,~,tauB] = snap_controller(vehi.K1,vehi.K2,vehi.K3,vehi.K4,vehi.K5,vehi.K6,r,dr,ddr,dddr,yaw_ref,dyaw_ref,x(1:18),x(19),x(20),vehi.I,vehi.M);    
-    u = mellinger_controller(vehi.KK,r,dr,ddr,dddr,yaw_ref,dyaw_ref,x,vehi.I,vehi.m);
+    u = mellinger_controller(vehi.KK,r,dr,ddr,dddr,yaw_ref,dyaw_ref,x,vehi.I,vehi.M);
 
     % Clamp u to bounds
-    tauBnorm = norm(tauB);
+    u(1) = min(max(u(1),vehi.Fmin),vehi.Fmax);
+    tauBnorm = norm(u(2:3));
     if tauBnorm == 0
-        tauB = [0;0;0];
+        u(2:4) = [0;0;0];
     elseif tauBnorm > vehi.tauBmax
         scale = vehi.tauBmax/tauBnorm;
-        tauB = scale.*tauB;
+        u(2:4) = scale.*u(2:4);
     end
 
-    u = [ddF_des; tauB];
 end
