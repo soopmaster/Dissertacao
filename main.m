@@ -1,11 +1,8 @@
-% Main file of thesis project
+% test Main file of thesis project
 % Runs all generalized functions for any number of vehichles
 % Offline, initializes cell vector of vehiStruct
 % Then initializes parametope propagation variables
 % Online, runs specific vehichle and parametope dynamics 
-% Every inner_step runs predicted trajectory for Invader, as well as
-% parametope
-% Defender adjusts trajectory in response
 
 close all;
 clearvars;
@@ -25,7 +22,7 @@ simT = 5; % Sim time seconds
 Ts = 0.01;
 knum = simT/Ts;
 inner_step = 20;
-enable_prmtp = 0;
+enable_prmtp = 1;
 
 % === Init vehiStruct === &
 vehi_vec = init_all_vehi(Ts); % Cell vec with vehiSimStruct
@@ -88,7 +85,7 @@ for ind=1:numVehi
 end
 
 % === Start Figure === %
-enable_disp = 0;
+enable_disp = 1;
 fig=figure;
 hold on;
 grid on
