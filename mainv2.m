@@ -88,7 +88,7 @@ end
 
 % === Start Figure === %
 enable_disp = 1;
-fig=figure;
+fig=figure('WindowState','fullscreen');
 hold on;
 grid on
 axis equal
@@ -163,12 +163,19 @@ for k=1:knum-1
         vehi_vec{kVehi} = vehi;
 
         %legend({'target', 'r_T', 'Path'});
-        drawnow;
-        pause(Ts);
     end
+    drawnow;
+    pause(Ts);
+    frame(k) = getframe(fig);
 end
 hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
+
+vid=VideoWriter('test.mp4','MPEG-4');
+vid.FrameRate=1/Ts;
+open(vid);
+writeVideo(vid,frame);
+close(vid);
 
 function [alph_vec, y] = calcParametopes(x, u, vehi, Ts)
 
