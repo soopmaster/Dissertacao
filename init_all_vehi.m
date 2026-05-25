@@ -12,14 +12,16 @@ ops = sdpsettings('verbose',0);
 ops.plot.shade = 0.15;
 ops.plot.linewidth=0.05;
 ops.plot.wirestyle=':';
-ops.plot.edgecolor="#EB4B2D";
+ops.plot.edgecolor='#EB4B2D';
+%ops.plot.edgecolor=[235 75 45];
 vehi_vec{1}.ops = ops;
 
 ops = sdpsettings('verbose',0);
 ops.plot.shade = 0.15;
 ops.plot.linewidth=0.05;
 ops.plot.wirestyle=':';
-ops.plot.edgecolor="#11F4BF";
+ops.plot.edgecolor='#11F4BF';
+%ops.plot.edgecolor=[17 244 191];
 vehi_vec{2}.ops = ops;
 
 % === Init Plot Obs === %

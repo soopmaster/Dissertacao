@@ -23,6 +23,7 @@ simT = 5; % Sim time seconds
 Ts = 0.01;
 knum = simT/Ts;
 inner_step = 20;
+prednum = 5;
 enable_prmtp = 1;
 
 % === Init vehiStruct === &
@@ -86,7 +87,7 @@ for ind=1:numVehi
 end
 
 % === Start Figure === %
-enable_disp = 0;
+enable_disp = 1;
 fig=figure;
 hold on;
 grid on
@@ -101,8 +102,9 @@ for ind=1:numVehi
     Xvec = [p_vec(1:3:12)];
     Yvec = [p_vec(2:3:12)];
     Zvec = [p_vec(3:3:12)];
+    vehi_vec{ind}.prmtpPatch = {};
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref{ind}(1,:),pts_ref{ind}(2,:),pts_ref{ind}(3,:),'xr','DisplayName','target');
-    %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'r','DisplayName','r_T');
+    vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
     vehi_vec{ind}.bodyPlot = patch(Xvec, Yvec, Zvec, [0 0 1],'DisplayName','Drone Body');
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
@@ -121,21 +123,28 @@ for k=1:knum-1
             disp('----------------');
             disp(['Computing ', num2str(k), ' time interval ']);
 
-            [vehi.xpred, vehi.upred] = calcPath(vehi.x(:,k), vehi, [k:knum-1], Ts, inner_step);
-            prmtp_ind = 1:inner_step:size(vehi.xpred,2);
+            [vehi.xpred, vehi.upred] = calcPath(vehi.x(:,k), vehi, [k:knum-1], Ts);
+            %prmtp_ind = 1:inner_step:size(vehi.xpred,2);
+            if prednum*inner_step >= size(vehi.xpred,2)
+                prmtp_indend = size(vehi.xpred,2);
+            else
+                prmtp_indend = prednum*inner_step;
+            end
+            prmtp_ind = 1:inner_step:prmtp_indend;
             [vehi.alphpred, vehi.ypred] = calcParametopes(vehi.xpred(:,prmtp_ind), vehi.upred(:,prmtp_ind), vehi, Ts*inner_step);
 
             disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
 
             if enable_disp
-                plot3(vehi.xpred(1,:), vehi.xpred(2,:), vehi.xpred(3,:), '-.k');
-                plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),vehi.vehiSt.nx,ops,fig);
+                vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
+                vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),vehi.vehiSt.nx,ops,vehi.prmtpPatch);
             end
 
         end
        
         % === Real-Time === %
-        [x_aux, u_aux] = calcPath(vehi.x(:,k), vehi, k, Ts, inner_step);
+        % Add disturbances!
+        [x_aux, u_aux] = calcPath(vehi.x(:,k), vehi, k, Ts);
         vehi.x(:,k+1) = x_aux(:,end);
         vehi.u(:,k) = u_aux(:,end);
 
@@ -187,7 +196,7 @@ for k=1:size(x,2)-1
 end
 end
 
-function [x, u] = calcPath(x0, vehi, t, Ts, inner_step)
+function [x, u] = calcPath(x0, vehi, t, Ts)
 % Run trajectory prediction of vehi from x0 throughout t
 
 x = zeros(vehi.vehiSt.nx,length(t)+1);
@@ -208,18 +217,59 @@ end
 
 end
 
-function plotParametope(y,alph_vec,x,nx,ops,fig)
-for k=1:length(y)
-    alph = reshape(alph_vec(:,k),nx,[]);
-    alph_pre = (1/10*y(k))^-1.*alph;
-    X.G = inv(sqrtm(alph_pre));
-    X.c = x(:,k);
-    X.A = zeros(0,nx);
-    X.b = zeros(0,1);
-    X.idx = [nx];
-    X.type = [2];
-    [Fc,p] = compileCCG(X);
-    plot(Fc,p(1:3),ops.plot.edgecolor,300,ops);
-    %drawnow;
+function traj = plotTraj(x, traj)
+    traj.XData = x(1,:);
+    traj.YData = x(2,:);
+    traj.ZData = x(3,:);
+end
+
+function p_vec = plotParametope(y,alph_vec,x,nx,ops,patch_vec)
+if isempty(patch_vec)
+    p_vec = cell(1,size(y,2));
+else
+    p_vec = patch_vec;
+end
+
+for k=1:size(p_vec,2)
+    if k>size(y,2)
+        %set(p_vec{k},'LineWidth',0);
+        set(p_vec{k},'FaceAlpha',0);
+        p_vec{k}.Vertices = [0;0;0]';
+        p_vec{k}.Faces = 1;
+    else
+        alph = reshape(alph_vec(:,k),nx,[]);
+        alph_pre = (1*y(k))^-1.*alph;
+        X.G = inv(sqrtm(alph_pre));
+        X.c = x(:,k);
+        X.A = zeros(0,nx);
+        X.b = zeros(0,1);
+        X.idx = [nx];
+        X.type = [2];
+        [Fc,p] = compileCCG(X);
+        %plot(Fc,p(1:3),ops.plot.edgecolor,300,ops);
+        x_opt = plot(Fc,p(1:3),ops.plot.edgecolor,300,ops);
+        x_opt = x_opt{end};
+        K = convhulln(x_opt');
+    
+        if isempty(patch_vec)
+            p = patch('Vertices', x_opt','Faces',K,'FaceColor', ops.plot.edgecolor);
+            set(p,'LineStyle',ops.plot.wirestyle);   
+            set(p,'LineWidth',ops.plot.linewidth);
+            set(p,'EdgeColor',ops.plot.edgecolor);
+            set(p,'Facealpha',ops.plot.shade);     
+            lighting gouraud;
+            %view(3);
+            camlight('headlight','infinite');
+            camlight('headlight','infinite');
+            camlight('right','local');
+            camlight('left','local');   
+            %drawnow;
+        
+            p_vec{k} = p;
+        else
+            p_vec{k}.Faces = K;
+            p_vec{k}.Vertices = x_opt';
+        end
+    end
 end
 end
