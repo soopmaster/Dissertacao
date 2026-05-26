@@ -186,6 +186,7 @@ p.ZData = Zvec;
 end
 
 function ref = quadDrone_traj(t,pts,vehi)
+    %pts = pts(1:end-2,:); % Ignore Yaw for now...
     order = size(pts,1)/3;
     switch order
         case 2

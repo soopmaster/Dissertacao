@@ -65,6 +65,7 @@ pts_ref{2} = zeros(3*4,length(trajt{2}));
 pts_ref{2}(1:6,1) = [p0_ref;v0_ref];
 %pts_ref{2}(:,2) = [p1_ref; v1_ref; a1_ref; j1_ref];
 pts_ref{2}(:,end) = [p2_ref; v2_ref; a2_ref; j2_ref];
+%pts_ref{2}(:,end) = [p2_ref; v2_ref];
 for ind=1:numVehi
     vehi = vehi_vec{ind};
 
@@ -90,7 +91,7 @@ for ind=1:numVehi
 end
 
 % === Start Figure === %
-enable_disp = 1;
+enable_disp = 0;
 fig=figure('WindowState','normal');
 hold on;
 grid on
@@ -115,12 +116,12 @@ for k=1:knum-1
         vehi = vehi_vec{kVehi};
         ops = vehi.ops;
 
-        % === Predict === %
         if ~mod(k+recalc_step-1,recalc_step)
             telapse_k = tic;
             disp('----------------');
             disp(['Computing ', num2str(k), ' time interval ']);
 
+            % === Predict === %
             [vehi.xpred, vehi.upred] = calcPath(vehi.x(:,k), vehi, [k:knum-1], Ts);
             %prmtp_ind = 1:inner_step:size(vehi.xpred,2);
             if discnum*disc_step >= size(vehi.xpred,2)
@@ -133,8 +134,10 @@ for k=1:knum-1
 
             disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
 
+            
+            % === Update Plot === %
+            vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
             if enable_disp
-                vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
                 vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),vehi.vehiSt.nx,ops,vehi.prmtpPatch);
             end
 
