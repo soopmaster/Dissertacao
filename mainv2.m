@@ -22,8 +22,11 @@ clearvars;
 simT = 5; % Sim time seconds
 Ts = 0.01;
 knum = simT/Ts;
-inner_step = 20;
-prednum = 5;
+calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
+recalc_step = calc_traj_dt/Ts;
+disc_dt = 0.1; % Time step between Reachability discs
+disc_step = disc_dt/Ts;
+discnum = 10;
 enable_prmtp = 1;
 
 % === Init vehiStruct === &
@@ -77,10 +80,10 @@ for ind=1:numVehi
     vehi.u = zeros(vehi.vehiSt.nu,knum);
     vehi.u(:,1) = vehi.vehiSt.u0;
 
-    vehi.alph = zeros(vehi.vehiSt.nx^2,knum/inner_step);
+    vehi.alph = zeros(vehi.vehiSt.nx^2,knum/recalc_step);
     vehi.alph(:,1) = reshape(vehi.vehiSt.alph0,[],1);
 
-    vehi.y = zeros(1,knum/inner_step);
+    vehi.y = zeros(1,knum/recalc_step);
     vehi.y(1) = vehi.vehiSt.ysim0;
 
     vehi_vec{ind} = vehi;
@@ -88,7 +91,7 @@ end
 
 % === Start Figure === %
 enable_disp = 1;
-fig=figure('WindowState','fullscreen');
+fig=figure('WindowState','normal');
 hold on;
 grid on
 axis equal
@@ -97,15 +100,10 @@ xlabel('$x$','Interpreter','latex');
 ylabel('$y$','Interpreter','latex');
 zlabel('$z$','Interpreter','latex');
 for ind=1:numVehi
-    p_vec = vehi_vec{ind}.p_vec;
-
-    Xvec = [p_vec(1:3:12)];
-    Yvec = [p_vec(2:3:12)];
-    Zvec = [p_vec(3:3:12)];
     vehi_vec{ind}.prmtpPatch = {};
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref{ind}(1,:),pts_ref{ind}(2,:),pts_ref{ind}(3,:),'xr','DisplayName','target');
     vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
-    vehi_vec{ind}.bodyPlot = patch(Xvec, Yvec, Zvec, [0 0 1],'DisplayName','Drone Body');
+    vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
 
@@ -118,20 +116,20 @@ for k=1:knum-1
         ops = vehi.ops;
 
         % === Predict === %
-        if ~mod(k+inner_step-1,inner_step)
+        if ~mod(k+recalc_step-1,recalc_step)
             telapse_k = tic;
             disp('----------------');
             disp(['Computing ', num2str(k), ' time interval ']);
 
             [vehi.xpred, vehi.upred] = calcPath(vehi.x(:,k), vehi, [k:knum-1], Ts);
             %prmtp_ind = 1:inner_step:size(vehi.xpred,2);
-            if prednum*inner_step >= size(vehi.xpred,2)
+            if discnum*disc_step >= size(vehi.xpred,2)
                 prmtp_indend = size(vehi.xpred,2);
             else
-                prmtp_indend = prednum*inner_step;
+                prmtp_indend = discnum*disc_step;
             end
-            prmtp_ind = 1:inner_step:prmtp_indend;
-            [vehi.alphpred, vehi.ypred] = calcParametopes(vehi.xpred(:,prmtp_ind), vehi.upred(:,prmtp_ind), vehi, Ts*inner_step);
+            prmtp_ind = 1:disc_step:prmtp_indend;
+            [vehi.alphpred, vehi.ypred] = calcParametopes(vehi.xpred(:,prmtp_ind), vehi.upred(:,prmtp_ind), vehi, Ts*disc_step);
 
             disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
 
@@ -149,15 +147,8 @@ for k=1:knum-1
         vehi.u(:,k) = u_aux(:,end);
 
         % === Update Plot === %
-        bodyFunc = vehi.vehiSt.bodyFunc; 
-        p_vec = bodyFunc(vehi.x(:,k), vehi.p_vec);
-        Xvec = [p_vec(1:3:12)];
-        Yvec = [p_vec(2:3:12)];
-        Zvec = [p_vec(3:3:12)];
-        vehi.bodyPlot.XData = Xvec;
-        vehi.bodyPlot.YData = Yvec;
-        vehi.bodyPlot.ZData = Zvec;
-        
+        plotBodyFunc = vehi.vehiSt.plotBodyFunc; 
+        vehi.bodyPlot = plotBodyFunc(vehi.x(:,k), vehi.bodyPlot);
         addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
 
         vehi_vec{kVehi} = vehi;
@@ -171,11 +162,11 @@ end
 hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
-vid=VideoWriter('test.mp4','MPEG-4');
-vid.FrameRate=1/Ts;
-open(vid);
-writeVideo(vid,frame);
-close(vid);
+% vid=VideoWriter('test.mp4','MPEG-4');
+% vid.FrameRate=1/Ts;
+% open(vid);
+% writeVideo(vid,frame);
+% close(vid);
 
 function [alph_vec, y] = calcParametopes(x, u, vehi, Ts)
 

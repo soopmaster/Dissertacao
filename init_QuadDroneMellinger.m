@@ -81,6 +81,17 @@ vehiStruct.x0 = x0;
 u0 = [0; zeros(3,1)];
 vehiStruct.u0 = u0;
 
+% === Plot Variables === %
+L = 0.5;
+p_NB = [L;0;0];
+p_SB = [-L;0;0];
+p_EB = [0;L;0];
+p_OB = [0;-L;0];
+p_vec = [p_NB; p_EB; p_SB; p_OB];
+Xvec = [p_vec(1:3:12)];
+Yvec = [p_vec(2:3:12)];
+Zvec = [p_vec(3:3:12)];
+
 % === Symbolic ===%
 syms psym vsym  omegaBsym tauBsym Isym [3 1]
 syms Fsym dFsym ddFsym niu_vsym niu_wsym Msym
@@ -158,7 +169,20 @@ vehiStruct.dynFunc = @(y,u) quadDroneODE(y,u,I,M,niu_v,niu_w);
 vehiStruct.jacFunc = @(x,u) quadDrone_jac([x;u],I,M,niu_v,niu_w);
 vehiStruct.trajFunc = @(t,pts) quadDrone_traj(t,pts,vehiStruct);
 vehiStruct.contrlFunc = @(x,ref) quadController(x,ref,vehiStruct);
-vehiStruct.bodyFunc = @(x,p_vec) kron(eye(4),reshape(x(7:15),3,[]))*p_vec + [x(1:3); x(1:3); x(1:3); x(1:3)];
+vehiStruct.bodyPlot = @() patch(Xvec, Yvec, Zvec, [0 0 1]);
+vehiStruct.plotBodyFunc = @(x,patch) quadDrone_plotBody(x,patch,p_vec);
+end
+
+function p = quadDrone_plotBody(x,p,p_vec)
+p_vecnew = kron(eye(4),reshape(x(7:15),3,[]))*p_vec + [x(1:3); x(1:3); x(1:3); x(1:3)];
+Xvec = [p_vecnew(1:3:12)];
+Yvec = [p_vecnew(2:3:12)];
+Zvec = [p_vecnew(3:3:12)];
+
+p.XData = Xvec;
+p.YData = Yvec;
+p.ZData = Zvec;
+
 end
 
 function ref = quadDrone_traj(t,pts,vehi)
