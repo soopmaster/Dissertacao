@@ -23,9 +23,11 @@ clearvars;
 simT = 5; % Sim time seconds
 Ts = 0.01;
 knum = simT/Ts;
-calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
+%calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
+calc_traj_dt = Ts;
 recalc_step = calc_traj_dt/Ts;
 disc_dt = 0.1; % Time step between Reachability discs
+%disc_dt = Ts;
 disc_step = disc_dt/Ts;
 discnum = 10;
 enable_prmtp = 1;
@@ -35,7 +37,7 @@ vehi_vec = init_all_vehi(Ts); % Cell vec with vehiSimStruct
 numVehi = length(vehi_vec);
 % vehi_vec{1} is assumed to be the Invader
 
-vehi_vec{1}.trajt = [0 1 4];
+vehi_vec{1}.trajt = [0 4];
 p0_ref = [5;-5;0];
 v0_ref = [0;0;0];
 p1_ref = [5.5;-5.5;.5];
@@ -48,11 +50,11 @@ a2_ref = [0;0;0];
 j2_ref = [0;0;0];
 pts_ref{1} = zeros(3*4,length(vehi_vec{1}.trajt));
 pts_ref{1}(1:6,1) = [p0_ref;v0_ref];
-pts_ref{1}(:,2) = [p1_ref; v1_ref; a1_ref; j1_ref];
+%pts_ref{1}(:,2) = [p1_ref; v1_ref; a1_ref; j1_ref];
 pts_ref{1}(:,end) = [p2_ref; v2_ref; a2_ref; j2_ref];
 vehi_vec{1}.pts_ref = pts_ref{1};
 
-vehi_vec{2}.trajt = [0 4];
+vehi_vec{2}.trajt = [0 1];
 p0_ref = [-5;5;0];
 v0_ref = [0;0;0];
 p1_ref = [0;0;1];
@@ -98,7 +100,7 @@ end
 
 % === Start Figure === %
 enable_disp = 0;
-fig=figure('WindowState','normal');
+fig=figure('WindowState','maximized');
 hold on;
 grid on
 axis equal
@@ -132,7 +134,7 @@ for k=1:knum-1
             [vehi.xpred, vehi.upred] = calcPath(vehi.x(:,k), vehi, [k:knum-1], Ts);
             %prmtp_ind = 1:inner_step:size(vehi.xpred,2);
             if discnum*disc_step >= size(vehi.xpred,2)
-                prmtp_indend = size(vehi.xpred,2);
+                prmtp_indend = size(vehi.xpred,2)-1;
             else
                 prmtp_indend = discnum*disc_step;
             end
@@ -145,8 +147,17 @@ for k=1:knum-1
             if kVehi~=1
                 % Assumes models have at least position and velocity, but no acceleration or snap
                 % Maybe use vehiSt function to get pts
+                % Set waypoint as a point in a line between the current
+                % point and the invader's position, at twice the distance
+                dist = -vehi_vec{1}.x(1:3,k) + vehi.x(1:3,k);
+                d_norm = norm(dist);
+                dist_n = 1/d_norm.*dist;
+
                 xstart = [vehi.x(1:6,k); vehi.traj(7:end-2,k)]; % Ignore Yaw for now...
-                xend = [vehi_vec{1}.x(1:6,k); vehi_vec{1}.traj(7:end-2,k)];
+                %xend = [vehi_vec{1}.x(1:6,k); vehi_vec{1}.traj(7:end-2,k)];
+                %xend = [vehi_vec{1}.x(1:3,k); zeros(size(xstart,1)-3,1)];
+                %xend = [2*d_norm*dist_n; zeros(size(xstart,1)-3,1)];
+                xend = [vehi_vec{1}.x(1:3,k); dist_n*10; dist_n*1; dist_n*.1];
                 traj_aux = recalcTraj(xstart, xend, k, Ts, knum, vehi);
                 vehi.traj = [vehi.traj(:,1:k-1), traj_aux];
             end
@@ -181,11 +192,11 @@ end
 hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
-% vid=VideoWriter('test.mp4','MPEG-4');
-% vid.FrameRate=1/Ts;
-% open(vid);
-% writeVideo(vid,frame);
-% close(vid);
+vid=VideoWriter('test.mp4','MPEG-4');
+vid.FrameRate=1/Ts;
+open(vid);
+writeVideo(vid,frame);
+close(vid);
 
 function traj_new = recalcTraj(xstart,xend,kcurr,Ts,knum,vehi)
 % Update trajt and pts_ref
@@ -279,7 +290,7 @@ for k=1:size(p_vec,2)
         X.type = [2];
         [Fc,p] = compileCCG(X);
         %plot(Fc,p(1:3),ops.plot.edgecolor,300,ops);
-        x_opt = plot(Fc,p(1:3),ops.plot.edgecolor,300,ops);
+        x_opt = plot(Fc,p(1:3),ops.plot.edgecolor,50,ops);
         x_opt = x_opt{end};
         K = convhulln(x_opt');
     

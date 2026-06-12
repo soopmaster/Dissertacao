@@ -23,7 +23,7 @@ function dxdt = quadDroneODE(x,u,I,m,niu_v,niu_w)
     F = u(1);
     tauB = u(2:end); % Torque vector in relation to body
 
-    A = reshape(A_vec,3,[]);
+    A = reshape(A_vec,3,3);
     %det(A)
     J = diag(I);
     omegaB_cr = crossprodmat(omegaB);
@@ -35,8 +35,7 @@ function dxdt = quadDroneODE(x,u,I,m,niu_v,niu_w)
     Adot = omegaB_cr*A;
     omegaBdot = J\(tauB-omegaB_cr*(J*omegaB))-niu_w.*omegaB;
 
-    Adot_vec = reshape(Adot,[],1);
-
+    Adot_vec = reshape(Adot,3*3,1);
     dxdt = [p_cmdot; vdot; Adot_vec; omegaBdot];
 
 end
