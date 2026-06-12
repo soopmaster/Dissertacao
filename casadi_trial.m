@@ -3,7 +3,7 @@ clearvars;
 
 import casadi.*
 
-simT = 5; % Sim time seconds
+simT = 2; % Sim time seconds
 Ts = 0.01;
 knum = simT/Ts;
 
@@ -32,14 +32,14 @@ X = SX.sym('X',nx_full,N+1); % States over optimization problem
 
 obj = 0; % objective function
 g = []; % Constraints vector
-Qk = 10.*eye(3);
-Qmk = 10.*eye(3);
-Rk = 5.*eye(4);
 
 xk = X(:,1); % initial state
 g = [g; xk-P(1:nx_full)]; % Initial condition constraints
 ref = P(nx_full+1:end); % reference
 for k=1:N
+    Qk = 10*exp(2*k).*eye(3);
+    Qmk = 0.0000001.*eye(3);
+    Rk = 10.*eye(4);
     xk = X(:,k); uk = U(:,k);
     obj = obj + jk(xk,uk,ref,Qk,Qmk,Rk,nx,ny); % Calc objective
     xk_1 = X(:,k+1); % xk+1
@@ -53,7 +53,10 @@ OPT_variables = [m2v(X); m2v(U)]; % = [x0; x1; ... ; xN+1; u0; u1; ... ; uN]
 nlp_prob = struct('f',obj,'x',OPT_variables, 'g',g,'p',P);
 opts = struct;
 opts.ipopt.max_iter = 100;
-opts.ipopt.print_level = 0;
+opts.ipopt.print_level = 3;
+%opts.ipopt.print = 1;
+opts.print_out = 0;
+opts.print_in = 0;
 opts.print_time = 0;
 opts.ipopt.acceptable_tol = 1e-8;
 opts.ipopt.acceptable_obj_change_tol = 1e-6;
@@ -265,6 +268,7 @@ function cost = jk(X,u,Y,Q,Qm,R,nx,ny)
     
         if k==1
             cost = -m2v(A)'*m2v((Qm*D)') + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);
+            %cost =  + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);
         else
             cost = cost + -m2v(A)'*m2v((Qm*D)') + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);
         end
