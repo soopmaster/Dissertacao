@@ -30,7 +30,7 @@ recalc_step = calc_traj_dt/Ts;
 disc_dt = 0.1; % Time step between Reachability discs
 %disc_dt = Ts;
 disc_step = disc_dt/Ts;
-discnum = 10;
+discnum = 1;
 enable_prmtp = 1;
 
 % === Init vehiStruct === &
@@ -114,7 +114,7 @@ for ind=1:numVehi
     pts_ref = vehi_vec{ind}.pts_ref;
     vehi_vec{ind}.prmtpPatch = {};
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
-    vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
+    %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
@@ -137,8 +137,13 @@ for k=1:knum-1
             disp(['Computing ', num2str(k), ' time interval ']);
 
             % === Predict === %
-            [vehi.xpred, vehi.upred] = calcPath(vehi.x(:,k), vehi, [k:knum-1], Ts);
-            %prmtp_ind = 1:inner_step:size(vehi.xpred,2);
+            pred_t = knum-k-1;
+            vehi.xpred = zeros(nx,pred_t+1);
+            vehi.xpred(:,1) = vehi.x(:,k);
+            vehi.upred = zeros(vehiSt.nu,pred_t);
+            for pred_k=1:pred_t
+                [vehi.xpred(:,pred_k+1), vehi.upred(:,pred_k)] = calcNxt(vehi.xpred(:,pred_k), vehi.traj(:,pred_k) , vehi, Ts);
+            end
             if discnum*disc_step >= size(vehi.xpred,2)
                 prmtp_indend = size(vehi.xpred,2)-1;
             else
@@ -151,6 +156,8 @@ for k=1:knum-1
 
             % === Recalculate Trajectory (for Defender only) === %
             if kVehi~=1
+                % Model/controller agnostic version: Always only receives
+                % x_full current and desired
                 % Assumes models have at least position and velocity, but no acceleration or snap
                 % Maybe use vehiSt function to get pts
                 % Set waypoint as a point in a line between the current
@@ -164,12 +171,12 @@ for k=1:knum-1
                 xend = [vehi_vec{1}.x(1:3,k); zeros(size(xstart,1)-3,1)];
                 %xend = [2*d_norm*dist_n; zeros(size(xstart,1)-3,1)];
                 %xend = [vehi_vec{1}.x(1:3,k); dist_n*10; dist_n*1; dist_n*.1];
-                traj_aux = recalcTraj(xstart, xend, k, Ts, knum, vehi);
+                traj_aux = calcTraj(xstart, xend, k, Ts, knum, vehi);
                 vehi.traj = [vehi.traj(:,1:k-1), traj_aux];
             end
 
             % === Update Plot === %
-            vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
+            %vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
             if enable_disp
                 vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
             end
@@ -178,10 +185,8 @@ for k=1:knum-1
        
         % === Real-Time === %
         % Add disturbances!
-        [x_aux, u_aux] = calcPath(vehi.x(:,k), vehi, k, Ts);
-        vehi.x(:,k+1) = x_aux(:,end);
-        vehi.u(:,k) = u_aux(:,end);
-
+        [vehi.x(:,k+1), vehi.u(:,k)] = calcNxt(vehi.x(:,k), vehi.traj(:,k) , vehi, Ts);
+        
         if 0 && kVehi ~= 1
             % Useful for the NMPC
             xfull_1 = runge_kutta4(@(xfull) fullDynFunc(@(x) vehiSt.dynFunc(x,vehi.u(:,k)), @(alph,x) prmtpU(alph,-vehiSt.jacFunc(x,vehi.u(:,k)),nx),xfull,nx),Ts,xfull_1);
@@ -204,13 +209,13 @@ end
 hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
-vid=VideoWriter('test.mp4','MPEG-4');
-vid.FrameRate=1/Ts;
-open(vid);
-writeVideo(vid,frame);
-close(vid);
+% vid=VideoWriter('test.mp4','MPEG-4');
+% vid.FrameRate=1/Ts;
+% open(vid);
+% writeVideo(vid,frame);
+% close(vid);
 
-function traj_new = recalcTraj(xstart,xend,kcurr,Ts,knum,vehi)
+function traj_new = calcTraj(xstart,xend,kcurr,Ts,knum,vehi)
 vehiSt = vehi.vehiSt;
 % Update trajt and pts_ref
 tcurr = kcurr*Ts;
@@ -254,6 +259,20 @@ for k=1:size(x,2)-1
 end
 end
 
+function [xk_1, u] = calcNxt(xk, xd, vehi, Ts)
+% Calculate next step for vehi from x0 to xd
+vehiSt = vehi.vehiSt;
+
+% === Calculate Control action === %
+ctrlFunc = vehiSt.contrlFunc;
+u = ctrlFunc(xk, xd);
+
+% === Calculate System === %
+dynFunc = vehiSt.dynFunc;
+xk_1 = runge_kutta4(@(y) dynFunc(y,u), Ts, xk);
+
+end
+
 function [x, u] = calcPath(x0, vehi, t, Ts)
 % Run trajectory prediction of vehi from x0 throughout t
 vehiSt = vehi.vehiSt;
@@ -268,6 +287,7 @@ for k=t
     % === Calculate Control action === %
     ctrlFunc = vehiSt.contrlFunc;
     u(:,kin) = ctrlFunc(x(:,kin), vehi.traj(:,k));
+    %u(:,kin) = ctrlFunc(x(:,kin), xd);
 
     % === Calculate System === %
     dynFunc = vehiSt.dynFunc;
