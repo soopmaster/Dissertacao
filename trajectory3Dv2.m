@@ -1,6 +1,7 @@
 function varargout = trajectory3Dv2(varargin)
 %trajectory3D Create trajectory that passes through given waypoints at times t with
 %given velocity
+% If only one output is asked, return trajectory polynomial values
 
 % waypt = [pt1x pt2x ... ptNx; pt1y pt2y ... ptNy; pt1z pt2z ... ptNz]
 % v = [v1x v2x ... vNx; v1y v2y ... vNy; v1z v2z ... vNz]
@@ -46,6 +47,11 @@ for i = 1:(waypt_num-1)
     w_starz(i,:) = (Omega*Omega') \ (Omega*data_z);
 
     w_star{i} = [w_starx(i,:);w_stary(i,:);w_starz(i,:)];
+end
+
+if nargout==1
+    varargout = w_star;
+    return
 end
 
 prod_vec = ones(1,2*traj_order);
