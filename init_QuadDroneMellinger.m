@@ -1,4 +1,4 @@
-function vehiStruct = init_QuadDroneMellinger(Ts)
+function vehiStruct = init_QuadDroneMellinger(p0,Ts)
 %INIT_QUADDRONE outputs vehiStruct of quadDrone
 %   
 % vehiStruct : struct (struct with components of quadDrone)
@@ -69,7 +69,7 @@ vehiStruct.niu_v = niu_v;
 vehiStruct.niu_w = niu_w;
 
 % == Initial Conditions == %
-p_cm0 = [0;0;0];
+p_cm0 = p0;
 v0 = [0;0;0];
 omega0B = [0;0;0];
 A0 = eye(3);

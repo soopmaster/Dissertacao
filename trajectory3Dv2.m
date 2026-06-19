@@ -16,7 +16,7 @@ traj_order = nargin-2; % Defines whether it's got velocity, acceleration, etc.
 t = varargin{1};
 dt = varargin{2};
 
-waypt_num = size(t,2);
+waypt_num = length(t);
 
 time_cell = cell(waypt_num-1,1);
 for i=1:waypt_num-1
@@ -50,7 +50,7 @@ for i = 1:(waypt_num-1)
 end
 
 if nargout==1
-    varargout = w_star;
+    varargout{1} = w_star;
     return
 end
 

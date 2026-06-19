@@ -4,8 +4,18 @@ function vehi_vec = init_all_vehi(Ts)
 
 vehi_vec = cell(1,2);
 
-vehi_vec{1}.vehiSt = init_QuadDroneMellinger(Ts);
-vehi_vec{2}.vehiSt = init_QuadDroneMellinger(Ts);
+% Define Inital Positions
+p10 = [5;-5;0];
+p20 = [-5;5;0];
+x0 = {p10, p20};
+
+vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);
+vehi_vec{2}.vehiSt = init_QuadDroneNMPC(x0{2},Ts);
+
+% vehi_vec{1}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{1}.vehiSt);
+% vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{2}.vehiSt);
+vehi_vec{1}.ctrlSt = init_MellingerCtrl(vehi_vec{1}.vehiSt);
+vehi_vec{2}.ctrlSt = init_MellingerCtrl(vehi_vec{2}.vehiSt);
 
 % === Define ops === %
 ops = sdpsettings('verbose',0);

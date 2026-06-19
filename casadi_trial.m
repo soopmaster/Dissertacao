@@ -14,7 +14,9 @@ ny = nx;
 ny_full = nx_full;
 nu = 4;
 
-vehi = init_QuadDroneMellinger(Ts);
+p0 = [0;0;0];
+
+vehi = init_QuadDroneNMPC(p0,Ts);
 
 % Using github workshop
 % (https://github.com/MMehrez/MPC-and-MHE-implementation-in-MATLAB-using-Casadi/blob/master/workshop_github/MPC_MHE_slides.pdf)
@@ -23,7 +25,7 @@ vehi = init_QuadDroneMellinger(Ts);
 
 x = SX.sym('x',nx_full);
 u = SX.sym('u',nu);
-rk4 = runge_kutta4(@(xfull) fullDynFunc(@(x) vehi.dynFunc(x,u), @(alph,x) prmtpU(alph,-vehi.jacFunc(x,u),nx),xfull,nx),Ts,x); % rk4 system r.h.s
+rk4 = runge_kutta4(@(xfull) vehi.dynFunc(xfull,u),Ts,x); % rk4 system r.h.s
 
 f = Function('f',{x,u},{rk4},{'xk','uk'},{'xk_1'});
 U = SX.sym('U',nu,N); % decision variables (control)
@@ -37,9 +39,10 @@ xk = X(:,1); % initial state
 g = [g; xk-P(1:nx_full)]; % Initial condition constraints
 ref = P(nx_full+1:end); % reference
 for k=1:N
-    Qk = 10*exp(2*k).*eye(3);
-    Qmk = 0.0000001.*eye(3);
-    Rk = 10.*eye(4);
+    Qk = 1*exp((k-1)/2).*eye(3);
+    %Qmk = 1/exp(k).*eye(3);
+    Qmk = 0.1*exp((k-1)/3).*eye(1);
+    Rk = 1.*eye(4);
     xk = X(:,k); uk = U(:,k);
     obj = obj + jk(xk,uk,ref,Qk,Qmk,Rk,nx,ny); % Calc objective
     xk_1 = X(:,k+1); % xk+1
@@ -53,7 +56,7 @@ OPT_variables = [m2v(X); m2v(U)]; % = [x0; x1; ... ; xN+1; u0; u1; ... ; uN]
 nlp_prob = struct('f',obj,'x',OPT_variables, 'g',g,'p',P);
 opts = struct;
 opts.ipopt.max_iter = 100;
-opts.ipopt.print_level = 3;
+opts.ipopt.print_level = 5;
 %opts.ipopt.print = 1;
 opts.print_out = 0;
 opts.print_in = 0;
@@ -243,7 +246,7 @@ xk_1 = f(xk,uk);
 x0 = full(xk_1);
 
 t0 = t0+Ts;
-u0 = [u(:,2:size(u,2)), u(:,size(u,2))];
+u0 = [u(:,2:end), u(:,end)];
 end
 
 function cost = jk(X,u,Y,Q,Qm,R,nx,ny)
@@ -265,9 +268,12 @@ function cost = jk(X,u,Y,Q,Qm,R,nx,ny)
     
         Any = v2m(Y(ny+1:yind_step,k),ny);
         A = proj3(Any);
+
+        eR = m2v(A)'*m2v(A)-m2v(A)'*m2v(D); % Rotation Matrix error
     
         if k==1
-            cost = -m2v(A)'*m2v((Qm*D)') + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);
+            %cost = -m2v(A)'*m2v((Qm*D)') + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);
+            cost = eR'*Qm*eR + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);
             %cost =  + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);
         else
             cost = cost + -m2v(A)'*m2v((Qm*D)') + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);

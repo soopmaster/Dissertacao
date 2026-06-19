@@ -6,12 +6,14 @@
 % Every inner_step runs predicted trajectory and parametopes
 % Defender tries to intercept invader
 % Using NMPC to align parametopes
+% Initialize vehi_vec, containing vehiSt (model) and ctrlSt (controller)
 
 close all;
 clearvars;
 
 % vehiSimStruct : struct (struct with components of main sim)
-%   .vehiSt;
+%   .vehiSt : Struct with functions and variables of model
+%   .ctrlSt : Struct with functions and variables of controller
 %   .x
 %   .u
 %   .alph
@@ -36,57 +38,37 @@ enable_prmtp = 1;
 % === Init vehiStruct === &
 vehi_vec = init_all_vehi(Ts); % Cell vec with vehiSimStruct
 numVehi = length(vehi_vec);
-% vehi_vec{1} is assumed to be the Invader
+% vehi_vec{1} is assumed to be the Invader 
 
-vehi_vec{1}.trajt = [0 4];
-p0_ref = [5;-5;0];
-v0_ref = [0;0;0];
-p1_ref = [5.5;-5.5;.5];
+% === Define Critical Area === %
+p1_ref = [0;0;2];
 v1_ref = [0;0;0];
-a1_ref = [0;0;0];
-j1_ref = [0;0;0];
-p2_ref = [0;0;2];
-v2_ref = [0;0;0];
-a2_ref = [0;0;0];
-j2_ref = [0;0;0];
-pts_ref{1} = zeros(3*4,length(vehi_vec{1}.trajt));
-pts_ref{1}(1:6,1) = [p0_ref;v0_ref];
-%pts_ref{1}(:,2) = [p1_ref; v1_ref; a1_ref; j1_ref];
-pts_ref{1}(:,end) = [p2_ref; v2_ref; a2_ref; j2_ref];
-vehi_vec{1}.pts_ref = pts_ref{1};
+pts_ref = [p1_ref; v1_ref; vehi_vec{1}.vehiSt.x0(3*2+1:end)];
+vehi_vec{1}.pts_ref = [vehi_vec{1}.vehiSt.x0, pts_ref];
 
-vehi_vec{2}.trajt = [0 4];
-p0_ref = [-5;5;0];
-v0_ref = [0;0;0];
-p1_ref = [0;0;1];
-v1_ref = [0;0;0];
-a1_ref = [0;0;0];
-j1_ref = [0;0;0];
-p2_ref = [0;0;2];
-v2_ref = [0;0;0];
-a2_ref = [0;0;0];
-j2_ref = [0;0;0];
-pts_ref{2} = zeros(3*4,length(vehi_vec{2}.trajt));
-pts_ref{2}(1:6,1) = [p0_ref;v0_ref];
-%pts_ref{2}(:,2) = [p1_ref; v1_ref; a1_ref; j1_ref];
-pts_ref{2}(:,end) = [p2_ref; v2_ref; a2_ref; j2_ref];
-%pts_ref{2}(:,end) = [p2_ref; v2_ref];
-vehi_vec{2}.pts_ref = pts_ref{2};
 for ind=1:numVehi
     vehi = vehi_vec{ind};
+    nx = vehi.vehiSt.nx;
+    nx_full = nx+nx^2;
 
-    % === Init Trajectories === %
-    trajFunc = vehi.vehiSt.trajFunc;
-    traj = trajFunc(vehi.trajt, vehi.pts_ref); % Compute Trajectory based on waypoints
-    traj = [traj, traj(:,end).*ones(size(traj,1),knum-size(traj,2))]; % Pad Trajectory vec with last value
-    vehi.traj = [traj; 0.*ones(1,knum); 0.*ones(1,knum)]; % Yaw and dYaw
-    % if ind~=1
-    %     vehi.traj = zeros(size(vehi.traj,1),0);
-    % end
+    if ind ~= 1
+        pts_ref = vehi_vec{1}.vehiSt.x0;
+        vehi.pts_ref = [vehi.vehiSt.x0, pts_ref];
+    end
+
+    % Generalized version should not need Trajectories
+    % % === Init Trajectories === %
+    % trajFunc = vehi.vehiSt.trajFunc;
+    % traj = trajFunc(vehi.trajt, vehi.pts_ref); % Compute Trajectory based on waypoints
+    % traj = [traj, traj(:,end).*ones(size(traj,1),knum-size(traj,2))]; % Pad Trajectory vec with last value
+    % vehi.traj = [traj; 0.*ones(1,knum); 0.*ones(1,knum)]; % Yaw and dYaw
+    % % if ind~=1
+    % %     vehi.traj = zeros(size(vehi.traj,1),0);
+    % % end
 
     % === Init Simulation Vectors === %
-    vehi.x = zeros(vehi.vehiSt.nx,knum);
-    vehi.x(:,1) = [vehi.traj(1:6,1); vehi.vehiSt.x0(7:end)];
+    vehi.x = zeros(nx_full,knum);
+    vehi.x(:,1) = vehi.pts_ref(:,1);
     vehi.u = zeros(vehi.vehiSt.nu,knum);
     vehi.u(:,1) = vehi.vehiSt.u0;
 
@@ -97,7 +79,6 @@ for ind=1:numVehi
     vehi.y(1) = vehi.vehiSt.ysim0;
 
     vehi_vec{ind} = vehi;
-    xfull_1 = [vehi.x(:,1); vehi.alph(:,1)];
 end
 
 % === Start Figure === %
@@ -119,60 +100,41 @@ for ind=1:numVehi
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
 
-xfull_1 = [vehi.x(:,1); vehi.alph(:,1)];
-
 % === Simulation === %
 telapse_total = tic;
 for k=1:knum-1 
     disp(['=== Computing ', num2str(k*Ts), '/', num2str(simT), 's ===']);
+    telapse_k = tic;
+    disp('----------------');
+    disp(['Computing ', num2str(k), ' time interval ']);
     for kVehi=1:numVehi
         vehi = vehi_vec{kVehi};
         vehiSt = vehi.vehiSt;
         nx = vehiSt.nx;
+        nx_full = nx+nx^2;
         ops = vehi.ops;
 
         if ~mod(k+recalc_step-1,recalc_step)
-            telapse_k = tic;
-            disp('----------------');
-            disp(['Computing ', num2str(k), ' time interval ']);
 
-            % === Predict === %
-            pred_t = knum-k-1;
-            vehi.xpred = zeros(nx,pred_t+1);
-            vehi.xpred(:,1) = vehi.x(:,k);
-            vehi.upred = zeros(vehiSt.nu,pred_t);
-            for pred_k=1:pred_t
-                [vehi.xpred(:,pred_k+1), vehi.upred(:,pred_k)] = calcNxt(vehi.xpred(:,pred_k), vehi.traj(:,pred_k) , vehi, Ts);
-            end
-            if discnum*disc_step >= size(vehi.xpred,2)
-                prmtp_indend = size(vehi.xpred,2)-1;
-            else
-                prmtp_indend = discnum*disc_step;
-            end
-            prmtp_ind = 1:disc_step:prmtp_indend;
-            [vehi.alphpred, vehi.ypred] = calcParametopes(vehi.xpred(:,prmtp_ind), vehi.upred(:,prmtp_ind), vehi, Ts*disc_step);
-
-            disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
+            % % === Predict === %
+            % pred_t = knum-k-1;
+            % vehi.xpred = zeros(nx_full,pred_t+1);
+            % vehi.xpred(:,1) = vehi.x(:,k);
+            % vehi.upred = zeros(vehiSt.nu,pred_t);
+            % for pred_k=1:pred_t
+            %     [vehi.xpred(:,pred_k+1), vehi.upred(:,pred_k), vehi.ctrlSt.auxSt] = calcNxt(vehi.xpred(:,pred_k), vehi.pts_ref(:,end) , vehi, Ts);
+            % end
+            % if discnum*disc_step >= size(vehi.xpred,2)
+            %     prmtp_indend = size(vehi.xpred,2)-1;
+            % else
+            %     prmtp_indend = discnum*disc_step;
+            % end
+            % prmtp_ind = 1:disc_step:prmtp_indend;
+            % [vehi.alphpred, vehi.ypred] = calcParametopes(vehi.xpred(:,prmtp_ind), vehi.upred(:,prmtp_ind), vehi, Ts*disc_step);
 
             % === Recalculate Trajectory (for Defender only) === %
             if kVehi~=1
-                % Model/controller agnostic version: Always only receives
-                % x_full current and desired
-                % Assumes models have at least position and velocity, but no acceleration or snap
-                % Maybe use vehiSt function to get pts
-                % Set waypoint as a point in a line between the current
-                % point and the invader's position, at twice the distance
-                dist = -vehi_vec{1}.x(1:3,k) + vehi.x(1:3,k);
-                d_norm = norm(dist);
-                dist_n = 1/d_norm.*dist;
-
-                xstart = [vehi.x(1:6,k); vehi.traj(7:end-2,k)]; % Ignore Yaw for now...
-                %xend = [vehi_vec{1}.x(1:6,k); vehi_vec{1}.traj(7:end-2,k)];
-                xend = [vehi_vec{1}.x(1:3,k); zeros(size(xstart,1)-3,1)];
-                %xend = [2*d_norm*dist_n; zeros(size(xstart,1)-3,1)];
-                %xend = [vehi_vec{1}.x(1:3,k); dist_n*10; dist_n*1; dist_n*.1];
-                traj_aux = calcTraj(xstart, xend, k, Ts, knum, vehi);
-                vehi.traj = [vehi.traj(:,1:k-1), traj_aux];
+                vehi.pts_ref(:,end) = vehi_vec{1}.x(:,k);
             end
 
             % === Update Plot === %
@@ -185,13 +147,7 @@ for k=1:knum-1
        
         % === Real-Time === %
         % Add disturbances!
-        [vehi.x(:,k+1), vehi.u(:,k)] = calcNxt(vehi.x(:,k), vehi.traj(:,k) , vehi, Ts);
-        
-        if 0 && kVehi ~= 1
-            % Useful for the NMPC
-            xfull_1 = runge_kutta4(@(xfull) fullDynFunc(@(x) vehiSt.dynFunc(x,vehi.u(:,k)), @(alph,x) prmtpU(alph,-vehiSt.jacFunc(x,vehi.u(:,k)),nx),xfull,nx),Ts,xfull_1);
-            plot3(xfull_1(1),xfull_1(2),xfull_1(3),'or')
-        end
+        [vehi.x(:,k+1), vehi.u(:,k), vehi.ctrlSt.auxSt] = calcNxt(vehi.x(:,k), vehi.pts_ref(:,end) , vehi, Ts);
 
         % === Update Plot === %
         plotBodyFunc = vehiSt.plotBodyFunc; 
@@ -202,6 +158,8 @@ for k=1:knum-1
 
         %legend({'target', 'r_T', 'Path'});
     end
+    disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
+    disp(' ');
     drawnow;
     pause(Ts);
     frame(k) = getframe(fig);
@@ -259,13 +217,13 @@ for k=1:size(x,2)-1
 end
 end
 
-function [xk_1, u] = calcNxt(xk, xd, vehi, Ts)
+function [xk_1, u, auxSt] = calcNxt(xk, xd, vehi, Ts)
 % Calculate next step for vehi from x0 to xd
 vehiSt = vehi.vehiSt;
+ctrlSt = vehi.ctrlSt;
 
 % === Calculate Control action === %
-ctrlFunc = vehiSt.contrlFunc;
-u = ctrlFunc(xk, xd);
+[u,auxSt] = ctrlSt.ctrlFunc(xk, xd, ctrlSt.auxSt);
 
 % === Calculate System === %
 dynFunc = vehiSt.dynFunc;
