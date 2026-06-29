@@ -118,8 +118,8 @@ varbounds = [varmin, varmax];
 %tauBmax = 0.0007*pi;
 tauBmax = pi;
 vehiStruct.tauBmax = tauBmax;
-ubounds_max = [0; tauBmax.*ones(3,1)];
-ubounds_min = [0; -tauBmax.*ones(3,1)];
+ubounds_max = [Fmax; tauBmax.*ones(3,1)];
+ubounds_min = [Fmin; -tauBmax.*ones(3,1)];
 varbounds_ext = [varbounds; [ubounds_min, ubounds_max]];
 varbounds_ext_init = varbounds_ext;
 vehiStruct.vbds_init = varbounds_ext_init;
@@ -148,9 +148,10 @@ del_Ainv = [1/delta_A(1,1) 1/delta_A(1,2) 1/delta_A(1,2);
 delta_w = [1.8262; 1.8325; 0.0000]+1.0e-5.*ones(3,1);
 del_winv = [1/delta_w(1); 1/delta_w(2); 1/delta_w(2)];
 
-alph0_pre = diag(2.*[del_pinv; del_vinv; reshape(del_Ainv,[],1); del_winv])^2;
+%alph0_pre = diag(2.*[del_pinv; del_vinv; reshape(del_Ainv,[],1); del_winv])^2;
+alph0_pre = diag(2.*[del_pinv; del_vinv; reshape(del_Ainv,[],1); del_winv]);
 
-rad_sqr = min(eig(alph0_pre))^-1;
+rad_sqr = min(eig(alph0_pre'*alph0_pre))^-1;
 vehiStruct.ysim0 = rad_sqr;
 
 alph0=rad_sqr.*alph0_pre;

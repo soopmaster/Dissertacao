@@ -39,7 +39,8 @@ function [cM,c] = prmtpEllips_c(range_struct,symvars,varbounds,Dfxo_vec,alph_vec
     end
     
     nvar = size(code,1);
-    c = +inf;
+    % c = +inf;
+    c = -inf;
     cM = eye(dim);
     for k=1:2^nvar-1
         Mi = constDfMx;
@@ -55,7 +56,8 @@ function [cM,c] = prmtpEllips_c(range_struct,symvars,varbounds,Dfxo_vec,alph_vec
         err = Mi-Dfxo;
         alph_err = alph*err/alph; 
         cM_temp = alph_err'+alph_err;
-        c_temp = min(eig(cM_temp));
+        % c_temp = min(eig(cM_temp));
+        c_temp = max(eig(cM_temp));
         if c_temp>c
             c = c_temp;
             cM = cM_temp;

@@ -29,17 +29,17 @@ recalc_step = calc_traj_dt/Ts;
 disc_dt = 0.1; % Time step between Reachability discs
 %disc_dt = Ts;
 disc_step = disc_dt/Ts;
-discnum = 10;
+discnum = 5;
 enable_prmtp = 1;
 
 % === Init vehiStruct === &
-vehi_vec = init_all_vehi(Ts); % Cell vec with vehiSimStruct
+vehi_vec = local_init_all_vehi(Ts); % Cell vec with vehiSimStruct
 numVehi = length(vehi_vec);
 % vehi_vec{1} is assumed to be the Invader
 
 vehi_vec{1}.trajt = [0 4];
-p0_ref = [5;-5;0];
-v0_ref = [0;0;0];
+p0_ref = vehi_vec{1}.vehiSt.x0(1:3);
+v0_ref = vehi_vec{1}.vehiSt.x0(4:6);
 p1_ref = [5.5;-5.5;.5];
 v1_ref = [0;0;0];
 a1_ref = [0;0;0];
@@ -54,9 +54,9 @@ pts_ref{1}(1:6,1) = [p0_ref;v0_ref];
 pts_ref{1}(:,end) = [p2_ref; v2_ref; a2_ref; j2_ref];
 vehi_vec{1}.pts_ref = pts_ref{1};
 
-vehi_vec{2}.trajt = [0 1];
-p0_ref = [-5;5;0];
-v0_ref = [0;0;0];
+vehi_vec{2}.trajt = [0 4];
+p0_ref = vehi_vec{2}.vehiSt.x0(1:3);
+v0_ref = vehi_vec{2}.vehiSt.x0(4:6);
 p1_ref = [0;0;1];
 v1_ref = [0;0;0];
 a1_ref = [0;0;0];
@@ -112,7 +112,7 @@ for ind=1:numVehi
     pts_ref = vehi_vec{ind}.pts_ref;
     vehi_vec{ind}.prmtpPatch = {};
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
-    vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
+    %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
@@ -163,7 +163,7 @@ for k=1:knum-1
             end
 
             % === Update Plot === %
-            vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
+            %vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
             if enable_disp
                 vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),vehi.vehiSt.nx,ops,vehi.prmtpPatch);
             end
@@ -175,6 +175,7 @@ for k=1:knum-1
         [x_aux, u_aux] = calcPath(vehi.x(:,k), vehi, k, Ts);
         vehi.x(:,k+1) = x_aux(:,end);
         vehi.u(:,k) = u_aux(:,end);
+        %[vehi.alph(:,k+1), vehi.y(:,k+1)] = calcParametopes(vehi.x(:,k), vehi.u(:,k), vehi, Ts);
 
         % === Update Plot === %
         plotBodyFunc = vehi.vehiSt.plotBodyFunc; 
@@ -192,11 +193,68 @@ end
 hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
-vid=VideoWriter('test.mp4','MPEG-4');
+vid=VideoWriter('test_v3.mp4','MPEG-4');
 vid.FrameRate=1/Ts;
 open(vid);
 writeVideo(vid,frame);
 close(vid);
+
+function vehi_vec = local_init_all_vehi(Ts)
+%INIT_ALL_VEHI outputs cell vector of vehiStruct
+%   Detailed explanation goes here
+
+vehi_vec = cell(1,2);
+
+% Define Inital Positions
+p10 = [5;-5;0];
+% p20 = [-5;5;0];
+p20 = [4;-4;0];
+x0 = {p10, p20};
+
+vehi_vec{1}.vehiSt = init_QuadDroneMellinger(x0{1},Ts);
+vehi_vec{2}.vehiSt = init_QuadDroneMellinger(x0{2},Ts);
+
+% vehi_vec{1}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{1}.vehiSt);
+
+% vehi_vec{1}.ctrlSt = init_MellingerCtrl(4,vehi_vec{1}.vehiSt);
+% vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,30,Ts,vehi_vec{2}.vehiSt);
+%vehi_vec{2}.ctrlSt = init_MellingerCtrl(4,vehi_vec{2}.vehiSt);
+
+% === Define ops === %
+ops = sdpsettings('verbose',0);
+ops.plot.shade = 0.15;
+ops.plot.linewidth=0.05;
+ops.plot.wirestyle=':';
+ops.plot.edgecolor='#EB4B2D';
+%ops.plot.edgecolor=[235 75 45];
+vehi_vec{1}.ops = ops;
+
+ops = sdpsettings('verbose',0);
+ops.plot.shade = 0.15;
+ops.plot.linewidth=0.05;
+ops.plot.wirestyle=':';
+ops.plot.edgecolor='#11F4BF';
+%ops.plot.edgecolor=[17 244 191];
+vehi_vec{2}.ops = ops;
+
+% === Init Plot Obs === %
+L = 0.5;
+p_NB = [L;0;0];
+p_SB = [-L;0;0];
+p_EB = [0;L;0];
+p_OB = [0;-L;0];
+p_vec = [p_NB; p_EB; p_SB; p_OB];
+vehi_vec{1}.p_vec = p_vec;
+
+L = 0.5;
+p_NB = [L;0;0];
+p_SB = [-L;0;0];
+p_EB = [0;L;0];
+p_OB = [0;-L;0];
+p_vec = [p_NB; p_EB; p_SB; p_OB];
+vehi_vec{2}.p_vec = p_vec;
+
+end
 
 function traj_new = recalcTraj(xstart,xend,kcurr,Ts,knum,vehi)
 % Update trajt and pts_ref
@@ -236,6 +294,7 @@ for k=1:size(x,2)-1
     % Calculate c just once outside of runge-kutta
     [alph_err,parametope_c] = prmtpEllips_c(vehi.vehiSt.rStrt,vehi.vehiSt.symvars,vbds_ext,-Dfxo,alph_vec(:,k),vehi.vehiSt.nx,vehi.vehiSt.rCode,vehi.vehiSt.rHasVarMx,vehi.vehiSt.rConstDfMx);
     y(k+1) = runge_kutta4(@(yr) prmtpE(yr,parametope_c^-2), Ts, y(k));
+    % y(k+1) = runge_kutta4(@(yr) prmtpE(yr,parametope_c), Ts, y(k));
 end
 end
 
@@ -281,7 +340,7 @@ for k=1:size(p_vec,2)
         p_vec{k}.Faces = 1;
     else
         alph = reshape(alph_vec(:,k),nx,[]);
-        alph_pre = (1*y(k))^-1.*alph;
+        alph_pre = (1*y(k))^-1.*alph'*alph;
         X.G = inv(sqrtm(alph_pre));
         X.c = x(:,k);
         X.A = zeros(0,nx);
@@ -316,3 +375,4 @@ for k=1:size(p_vec,2)
     end
 end
 end
+

@@ -32,7 +32,8 @@ recalc_step = calc_traj_dt/Ts;
 disc_dt = 0.1; % Time step between Reachability discs
 %disc_dt = Ts;
 disc_step = disc_dt/Ts;
-discnum = 1;
+pred_hor = 60;
+discnum = 5;
 enable_prmtp = 1;
 
 % === Init vehiStruct === &
@@ -81,6 +82,8 @@ for ind=1:numVehi
     vehi_vec{ind} = vehi;
 end
 
+vehiPred = vehi_vec{1}; % Auxilliary vehi for prediction
+
 % === Start Figure === %
 enable_disp = 0;
 fig=figure('WindowState','maximized');
@@ -116,14 +119,23 @@ for k=1:knum-1
 
         if ~mod(k+recalc_step-1,recalc_step)
 
-            % % === Predict === %
-            % pred_t = knum-k-1;
-            % vehi.xpred = zeros(nx_full,pred_t+1);
-            % vehi.xpred(:,1) = vehi.x(:,k);
-            % vehi.upred = zeros(vehiSt.nu,pred_t);
-            % for pred_k=1:pred_t
-            %     [vehi.xpred(:,pred_k+1), vehi.upred(:,pred_k), vehi.ctrlSt.auxSt] = calcNxt(vehi.xpred(:,pred_k), vehi.pts_ref(:,end) , vehi, Ts);
-            % end
+            if kVehi == 1
+                % === Predict === %
+                % pred_t = knum-k-1;
+                % vehi.xpred = zeros(nx_full,pred_t+1);
+                % vehi.xpred(:,1) = vehi.x(:,k);
+                % vehi.upred = zeros(vehiSt.nu,pred_t);
+                vehiPred.x(1:nx,k) = vehi.x(1:nx,k);
+                vehiPred.x(nx+1:end,k) = vehiPred.x(nx+1:end,1);
+                vehiPred.ctrlSt.auxSt = vehi.ctrlSt.auxSt;
+                for pred_k=k:min(k+pred_hor,knum)
+                    %[vehi.xpred(:,pred_k+1), vehi.upred(:,pred_k), vehi.ctrlStpred.auxSt] = calcNxt(vehi.xpred(:,pred_k), vehi.pts_ref(:,end) , vehi, Ts);
+                    [vehiPred.x(:,pred_k+1), vehiPred.u(:,pred_k), vehiPred.ctrlSt.auxSt] = calcNxt(vehiPred.x(:,pred_k), vehiPred.pts_ref(:,end) , vehiPred, Ts);
+                end
+                % Test parametope plot
+                vehi.prmtpPatch = plotParametope(vehiSt.ysim0,vehiPred.x(nx+1:end,pred_k),vehiPred.x(1:nx,pred_k),nx,ops,vehi.prmtpPatch);
+                %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(k:pred_k)),vehiPred.x(nx+1:end,k:pred_k),vehiPred.x(1:nx,k:pred_k),nx,ops,vehi.prmtpPatch);
+            end
             % if discnum*disc_step >= size(vehi.xpred,2)
             %     prmtp_indend = size(vehi.xpred,2)-1;
             % else
@@ -134,13 +146,15 @@ for k=1:knum-1
 
             % === Recalculate Trajectory (for Defender only) === %
             if kVehi~=1
-                vehi.pts_ref(:,end) = vehi_vec{1}.x(:,k);
+                %vehi.pts_ref(:,end) = vehi_vec{1}.x(:,k);
+                vehi.pts_ref(:,end) = vehiPred.x(:,pred_k);
             end
 
             % === Update Plot === %
             %vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
             if enable_disp
-                vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
+                vehi.prmtpPatch = plotParametope(vehiSt.ysim0,vehi.x(nx+1:end,k),vehi.x(1:nx,k),nx,ops,vehi.prmtpPatch);
+                %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
             end
 
         end
@@ -158,6 +172,7 @@ for k=1:knum-1
 
         %legend({'target', 'r_T', 'Path'});
     end
+    aux = v2m(vehi_vec{1,1}.x(18+1:end,pred_k),18);
     disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
     disp(' ');
     drawnow;
@@ -167,11 +182,11 @@ end
 hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
-% vid=VideoWriter('test.mp4','MPEG-4');
-% vid.FrameRate=1/Ts;
-% open(vid);
-% writeVideo(vid,frame);
-% close(vid);
+vid=VideoWriter('test.mp4','MPEG-4');
+vid.FrameRate=1/Ts;
+open(vid);
+writeVideo(vid,frame);
+close(vid);
 
 function traj_new = calcTraj(xstart,xend,kcurr,Ts,knum,vehi)
 vehiSt = vehi.vehiSt;
@@ -275,8 +290,8 @@ for k=1:size(p_vec,2)
         p_vec{k}.Vertices = [0;0;0]';
         p_vec{k}.Faces = 1;
     else
-        alph = reshape(alph_vec(:,k),nx,[]);
-        alph_pre = (1*y(k))^-1.*alph;
+        alph = v2m(alph_vec(:,k),nx);
+        alph_pre = (1*y(k))^-1.*alph'*alph;
         X.G = inv(sqrtm(alph_pre));
         X.c = x(:,k);
         X.A = zeros(0,nx);

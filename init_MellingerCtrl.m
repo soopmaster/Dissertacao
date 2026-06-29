@@ -1,4 +1,4 @@
-function [ctrlSt] = init_MellingerCtrl(vehi)
+function [ctrlSt] = init_MellingerCtrl(tf,vehi)
 %init_mellingerCtrl creates mellinger ctrlSt ( for parametope)
 %
 % ctrlSt : struct (struct with components of prmtp Mellinger)
@@ -24,10 +24,10 @@ ctrlSt.auxSt = auxSt;
 
 % === Specific Function Handles === %
 %ctrlSt.trajFunc = @(t,pts) quadDrone_traj(t,pts,ctrlSt);
-ctrlSt.ctrlFunc = @(x0,xs,auxSt) quadController(x0, xs, auxSt, vehi);
+ctrlSt.ctrlFunc = @(x0,xs,auxSt) quadController(x0, xs, auxSt, tf, vehi);
 end
 
-function varargout = trajNxtK(x0_cell, xs_cell, t0, Ts)
+function varargout = trajNxtK(x0_cell, xs_cell, t0, tf, Ts)
     % calculate trajectory and return next point
 
     r0 = x0_cell{1}; rd = xs_cell{1};
@@ -36,8 +36,9 @@ function varargout = trajNxtK(x0_cell, xs_cell, t0, Ts)
     dddr0 = x0_cell{4}; dddrd = xs_cell{4};
 
     % tf is some function of the distance between points
-    tf = floor(norm(rd-r0)/2/Ts)*Ts; % Assume average speed
+    %tf = floor(norm(rd-r0)/2/Ts)*Ts; % Assume average speed
     t1 = t0+Ts;
+    tf = max(tf,t1);
     w_aux = trajectory3Dv2([t0;tf], Ts, [r0,rd], [dr0,drd], [ddr0,ddrd], [dddr0,dddrd]);
     w_aux = w_aux{1};
 
@@ -55,7 +56,7 @@ function varargout = trajNxtK(x0_cell, xs_cell, t0, Ts)
     end
 end
 
-function [u, auxSt] = quadController(x0, xs, auxSt, vehi)
+function [u, auxSt] = quadController(x0, xs, auxSt, tf, vehi)
     % x0 : current state [x0; alph0]
     % xs : desired state [ps; vs; ~]
     % auxSt : contains acceleration and jerk
@@ -75,7 +76,7 @@ function [u, auxSt] = quadController(x0, xs, auxSt, vehi)
     x0_cell = {x0(1:3), x0(4:6), auxSt.ddr, auxSt.dddr};
     xs_cell = {r,dr,ddr,dddr};
     t0 = auxSt.t0;
-    [rNxt,drNxt,ddrNxt,dddrNxt] = trajNxtK(x0_cell, xs_cell, t0, Ts);
+    [rNxt,drNxt,ddrNxt,dddrNxt] = trajNxtK(x0_cell, xs_cell, t0, tf, Ts);
     auxSt.ddr = ddrNxt; auxSt.dddr = dddrNxt; auxSt.t0 = t0+Ts;
 
     u = mellinger_controller(auxSt.KK,rNxt,drNxt,ddrNxt,dddrNxt,yaw_ref,dyaw_ref,x0(1:nx),vehi.I,vehi.M);

@@ -15,6 +15,8 @@ function [ctrlSt] = init_NMPCctrl(ny,N,Ts,vehi)
 
 % Notes: I should be tracking error
 % Maybe have several control modes; first to approach target, then to align
+% Note: This is failing! It may be because problem is degenerate, i.e.
+% information is lost
 
 import casadi.*
 
@@ -39,9 +41,15 @@ xk = X(:,1); % initial state
 g = [g; xk-P(1:nx_full)]; % Initial condition constraints
 ref = P(nx_full+1:end); % reference
 for k=1:N
-    Qk = 1*exp((k-1)/2).*eye(3);
+    %Qk = 10*exp((k-1)/2).*eye(3);
+    Qk = 0.1.*eye(3);
+    if k==N
+        Qk=15.*eye(3);
+    end
     %Qmk = 1/exp(k).*eye(3);
-    Qmk = 0.1*exp((k-1)/3).*eye(3*3);
+    %Qmk = 0.1*exp((k-1)/3).*eye(1);
+    Qmk = 0.00000001;
+    %Qmk = 1;
     Rk = 1.*eye(4);
     xk = X(:,k); uk = U(:,k);
     obj = obj + jk(xk,uk,ref,Qk,Qmk,Rk,nx,ny); % Calc objective
@@ -56,13 +64,16 @@ OPT_variables = [m2v(X); m2v(U)]; % = [x0; x1; ... ; xN+1; u0; u1; ... ; uN]
 nlp_prob = struct('f',obj,'x',OPT_variables, 'g',g,'p',P);
 opts = struct;
 opts.ipopt.max_iter = 100;
-opts.ipopt.print_level = 1;
+opts.ipopt.print_level = 5;
 %opts.ipopt.print = 1;
 opts.print_out = 0;
 opts.print_in = 0;
 opts.print_time = 0;
-opts.ipopt.acceptable_tol = 1e-8;
-opts.ipopt.acceptable_obj_change_tol = 1e-6;
+opts.ipopt.acceptable_iter = 5;
+% opts.ipopt.acceptable_tol = 1e-8;
+% opts.ipopt.acceptable_obj_change_tol = 1e-6;
+opts.ipopt.acceptable_tol = 1e-1;
+%opts.ipopt.acceptable_obj_change_tol = 1e-1;
 solver = nlpsol('solver', 'ipopt', nlp_prob, opts);
 
 args = struct;
@@ -83,7 +94,7 @@ args.lbx(length(bx)+1:length(bx)+length(lbu),1) = lbu;
 args.ubx(length(bx)+1:length(bx)+length(lbu),1) = ubu;
 
 % Initial Conditions
-auxSt.u0 = zeros(vehi.nu,N);
+auxSt.u0 = repmat(vehi.u0,1,N);
 auxSt.X0 = repmat(vehi.x0,1,N+1); % Init states decision variable
 
 ctrlSt.auxSt = auxSt;
@@ -115,15 +126,19 @@ x = proj3(xnx);
 yny = Y(1:ny);
 y = proj3(yny);
 
+% Maximize inner product of the principal axis of ellipsoids (eigen_vecs)
 Dnx = v2m(X(nx+1:xind_step),nx);
-D = proj3(Dnx);
+%Dnx = inv(Dnx);
+D = proj3(Dnx'*Dnx);
 
 Any = v2m(Y(ny+1:yind_step),ny);
-A = proj3(Any);
+%Any = inv(Any);
+A = proj3(Any'*Any);
 
-eR = (m2v(A)-m2v(D)); % Rotation Matrix error
+%eR = (m2v(A)-m2v(D)); % Ellipsoid Matrix error
+eR = -m2v(A)'*m2v(D);
 
 %cost = -m2v(A)'*m2v((Qm*D)') + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);
-cost = eR'*Qm*eR + (y-x)'*Q*(y-x) + u'*R*u;
-%cost =  + (y-x)'*Q*(y-x) + u(:,k)'*R*u(:,k);
+cost = Qm*eR + (y-x)'*Q*(y-x) + u'*R*u;
+%cost =  + (y-x)'*Q*(y-x) + u'*R*u;
 end
