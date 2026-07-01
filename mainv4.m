@@ -34,15 +34,18 @@ disc_dt = 0.1; % Time step between Reachability discs
 disc_step = disc_dt/Ts;
 pred_hor = 60;
 discnum = 5;
+
 enable_prmtp = 1;
+enable_disp = 0;
+make_vid = 0;
 
 % === Init vehiStruct === &
-vehi_vec = init_all_vehi(Ts); % Cell vec with vehiSimStruct
+vehi_vec = init_all_vehi(Ts,pred_hor); % Cell vec with vehiSimStruct
 numVehi = length(vehi_vec);
 % vehi_vec{1} is assumed to be the Invader 
 
 % === Define Critical Area === %
-p1_ref = [0;0;2];
+p1_ref = [0;0;0];
 v1_ref = [0;0;0];
 pts_ref = [p1_ref; v1_ref; vehi_vec{1}.vehiSt.x0(3*2+1:end)];
 vehi_vec{1}.pts_ref = [vehi_vec{1}.vehiSt.x0, pts_ref];
@@ -85,7 +88,6 @@ end
 vehiPred = vehi_vec{1}; % Auxilliary vehi for prediction
 
 % === Start Figure === %
-enable_disp = 0;
 fig=figure('WindowState','maximized');
 hold on;
 grid on
@@ -147,7 +149,7 @@ for k=1:knum-1
             % === Recalculate Trajectory (for Defender only) === %
             if kVehi~=1
                 %vehi.pts_ref(:,end) = vehi_vec{1}.x(:,k);
-                vehi.pts_ref(:,end) = vehiPred.x(:,pred_k);
+                vehi.pts_ref(:,2:(pred_k-k+1)) = vehiPred.x(:,k+1:pred_k);
             end
 
             % === Update Plot === %
@@ -161,7 +163,7 @@ for k=1:knum-1
        
         % === Real-Time === %
         % Add disturbances!
-        [vehi.x(:,k+1), vehi.u(:,k), vehi.ctrlSt.auxSt] = calcNxt(vehi.x(:,k), vehi.pts_ref(:,end) , vehi, Ts);
+        [vehi.x(:,k+1), vehi.u(:,k), vehi.ctrlSt.auxSt] = calcNxt(vehi.x(:,k), vehi.pts_ref(:,2:end), vehi, Ts);
 
         % === Update Plot === %
         plotBodyFunc = vehiSt.plotBodyFunc; 
@@ -177,16 +179,20 @@ for k=1:knum-1
     disp(' ');
     drawnow;
     pause(Ts);
-    frame(k) = getframe(fig);
+    if make_vid == 1
+        frame(k) = getframe(fig);
+    end
 end
 hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
-vid=VideoWriter('test.mp4','MPEG-4');
-vid.FrameRate=1/Ts;
-open(vid);
-writeVideo(vid,frame);
-close(vid);
+if make_vid == 1
+    vid=VideoWriter('test.mp4','MPEG-4');
+    vid.FrameRate=1/Ts;
+    open(vid);
+    writeVideo(vid,frame);
+    close(vid);
+end
 
 function traj_new = calcTraj(xstart,xend,kcurr,Ts,knum,vehi)
 vehiSt = vehi.vehiSt;

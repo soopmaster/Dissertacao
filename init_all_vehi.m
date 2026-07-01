@@ -1,13 +1,13 @@
-function vehi_vec = init_all_vehi(Ts)
+function vehi_vec = init_all_vehi(Ts,pred_hor)
 %INIT_ALL_VEHI outputs cell vector of vehiStruct
 %   Detailed explanation goes here
 
 vehi_vec = cell(1,2);
 
 % Define Inital Positions
-p10 = [5;-5;0];
+p10 = [5;-5;5];
 % p20 = [-5;5;0];
-p20 = [4;-4;0];
+p20 = [1;-1;0];
 x0 = {p10, p20};
 
 vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);
@@ -16,7 +16,8 @@ vehi_vec{2}.vehiSt = init_QuadDroneNMPC(x0{2},Ts);
 % vehi_vec{1}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{1}.vehiSt);
 
 vehi_vec{1}.ctrlSt = init_MellingerCtrl(4,vehi_vec{1}.vehiSt);
-vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,60,Ts,vehi_vec{2}.vehiSt);
+%vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
+vehi_vec{2}.ctrlSt = init_MellingerCtrl_v2(pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_MellingerCtrl(4,vehi_vec{2}.vehiSt);
 
 % === Define ops === %

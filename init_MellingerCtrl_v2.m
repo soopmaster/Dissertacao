@@ -1,4 +1,4 @@
-function [ctrlSt] = init_MellingerCtrl_v2(N,Ts)
+function [ctrlSt] = init_MellingerCtrl_v2(N,Ts,vehi)
 %init_mellingerCtrl_v2 creates mellinger ctrlSt ( for parametope)
 % dynamically generates trajectories
 %
@@ -11,34 +11,39 @@ function [ctrlSt] = init_MellingerCtrl_v2(N,Ts)
 
 import casadi.*
 
-X = SX.sym('X',3*8+1,1); % States over optimization variable [m2v(W);tf]
+X = SX.sym('X',3*8,1); % States over optimization variable [m2v(W)]
 %tf = SX.sym('tf');
 %Y = MX.sym('om_y',3,8);
-P = SX.sym('P',3+3*8); % parameters which include x0 and reference [p_D(0);m2v(Y)]
+P = SX.sym('P',3+3*8+1); % parameters which include x0 and reference [p_D(t0);t0;m2v(Y)]
 
 W = v2m(X(1:3*8),3);
-tf = X(end);
-Y = v2m(P(3+1:end),3); % Omega matrix for A
+%tf = X(end);
+pD0 = P(1:3);
+t0 = P(4);
+Y = v2m(P(4+1:end),3); % Omega matrix for A
 
-C = [zeros(1,7);eye(7)];
-TN = polyN((N-1)*Ts,7);
-T0 = polyN(0*Ts,7);
-Tf = polyN(tf*Ts,7);
+%C = [zeros(1,7);eye(7)];
+TN = dpolyN((N-1)*Ts,8,0);
+T0 = dpolyN(t0*Ts,8,0);
+%Tf = polyN(tf*Ts,7);
 
 g = []; % Equality Constraints vector
-g = [g; W(:,1)-P(1:3)]; % Initial condition constraints
-g = [g; W*Tf-Y*T0]; % Final condition constraints
+g = [g; W*T0-pD0]; % Initial condition constraints
+%g = [g; W*N-Y*T0]; % Final condition constraints
 obj = 0; % objective function
 for k=1:N
-    Q = 1.*eye(3);
+    Q1 = 0.5.*eye(3);
     if k==N
-        Q=15.*eye(3);
+        Q1=5.*eye(3);
     end
-    R = 1.*eye(1);
-    obj = jk(W,tf,Y,(k-1)*Ts,Q,R,C);
+    Q2 = 1.*eye(3);
+    if k==N
+        Q2=15.*eye(3);
+    end
+    obj = jk(W,Y,t0+(k-1)*Ts,N,Q1,Q2,Ts);
 end
 % make the decision vars one collumn vector
-OPT_variables = [m2v(W);tf];
+OPT_variables = [m2v(W)];
 
 nlp_prob = struct('f',obj,'x',OPT_variables, 'g',g,'p',P);
 opts = struct;
@@ -48,10 +53,10 @@ opts.ipopt.print_level = 5;
 opts.print_out = 0;
 opts.print_in = 0;
 opts.print_time = 0;
-opts.ipopt.acceptable_iter = 5;
+%opts.ipopt.acceptable_iter = 5;
 % opts.ipopt.acceptable_tol = 1e-8;
 % opts.ipopt.acceptable_obj_change_tol = 1e-6;
-opts.ipopt.acceptable_tol = 1e-1;
+%opts.ipopt.acceptable_tol = 1e-1;
 %opts.ipopt.acceptable_obj_change_tol = 1e-1;
 solver = nlpsol('solver', 'ipopt', nlp_prob, opts);
 
@@ -65,24 +70,34 @@ args.ubg(1:length(g),1) = 0;
 % -inf <= W <= +inf
 args.lbx(1:3*8,1) = -inf;
 args.ubx(1:3*8,1) = inf;
-% 0 <= tf <= N*Ts
-args.lbx(3*8+1,1) = 0;
-args.ubx(3*8+1,1) = N*Ts;
+% % 0 <= tf <= N*Ts
+% args.lbx(3*8+1,1) = 0;
+% args.ubx(3*8+1,1) = N*Ts;
+
+% === Initialize Auxiliary variables for mellinger controller === %
+K_val = 1;
+KK.Kp = 1*K_val.*eye(3); % dddp
+KK.Kv = 1*K_val.*eye(3); % ddp
+KK.KR = 1*K_val.*eye(3);   % dp
+KK.Kom = 1*K_val.*eye(3);        % p
+auxSt.KK = KK;
 
 % Initial Conditions
 auxSt.t0 = 0*Ts;
-auxSt.tf0 = N*Ts;
+%auxSt.tf0 = N*Ts;
 auxSt.W0 = ones(3,8); % Init states decision variable
 
 ctrlSt.auxSt = auxSt;
 
 % === Specific Function Handles === %
-ctrlSt.ctrlFunc = @(x0,xs,auxSt) NMPC_prmtp_v2(x0,xs,auxSt,solver,args,Ts);
+ctrlSt.ctrlFunc = @(x0,xs,auxSt) NMPC_prmtp_v2(x0,xs,auxSt,vehi,solver,args,Ts);
 
 end
 
-function [u_out, auxSt] = NMPC_prmtp_v2(x0,xs,auxSt,solver,args,Ts)
+function [u, auxSt] = NMPC_prmtp_v2(x0,xs,auxSt,vehi,solver,args,Ts)
 % xs : set of A predictions
+nx = vehi.nx;
+
 % generate A trajectory from 8 samples of xs
 k_step = floor(size(xs,2)/8);
 t = (0:k_step:size(xs,2))';
@@ -93,31 +108,72 @@ Y = trajectory3Dv3(Ts.*t,Ts,xs(1:3,(t+1)));
 Y = Y{1};
 
 t0 = auxSt.t0;
-tf0 = auxSt.tf0;
+%tf0 = auxSt.tf0;
 W0 = auxSt.W0;
-args.p = [x0(1:3); m2v(Y)]; % set values of parameter vector
-args.x0 = [m2v(W0); tf0]; % init value of optimization variables
+args.p = [x0(1:3); t0; m2v(Y)]; % set values of parameter vector
+args.x0 = [m2v(W0)]; % init value of optimization variables
 sol = solver('x0',args.x0,'lbx',args.lbx,'ubx',args.ubx,'lbg',args.lbg,'ubg',args.ubg,'p',args.p);
 
 W = v2m(full(sol.x(1:3*8)),3);
-tf = full(sol.x(end));
+%tf = full(sol.x(end));
 
+tnxt = t0+Ts;
+for k=1:4
+    rNxt{k} = W*[zeros(k-1,1); dpolyN(tnxt,8,k-1)];
+end
 
-auxSt.t0 = t0+Ts;
-auxSt.tf0 = tf;
+yaw_ref= 0;
+dyaw_ref= 0;
+u = mellinger_controller(auxSt.KK,rNxt{1},rNxt{2},rNxt{3},rNxt{4},yaw_ref,dyaw_ref,x0(1:nx),vehi.I,vehi.M);
+
+% Clamp u to bounds
+u(1) = min(max(u(1),vehi.Fmin),vehi.Fmax);
+tauBnorm = norm(u(2:3));
+if tauBnorm == 0
+    u(2:4) = [0;0;0];
+elseif tauBnorm > vehi.tauBmax
+    scale = vehi.tauBmax/tauBnorm;
+    u(2:4) = scale.*u(2:4);
+end
+
+auxSt.t0 = tnxt;
+%auxSt.tf0 = tf;
 auxSt.W0 = W;
 end
 
-function res = polyN(t,N) 
-    res = (1./factorial(0:N).*t.^(0:N))';
+function res = dpolyN(t,N,d) 
+    % Compute d-th derivative of N-th order polynomial at point t
+    res = (factorial(d+(0:N-1-d))./factorial(0:N-1-d).*t.^(0:N-1-d))';
 end
 
-function cost = jk(X,tf,Y,t,Q,R,C)
-dT = polyN(t,6);
+function C = dC(N)
+    % Matrix that transforms a 3x8 parameter matrix into corresponding
+    % 3x(8-1) derivative
+    C = [zeros(N,8-N);eye(8-N)];
+end
 
-ev = crossprodmat(Y*C*dT)*X*C*dT; % Derivative error
+function cost = jk(W,Y,t,N,Q1,Q2,Ts)
+% J(W,t) = 1/N*||sum(||r_D(t)-r_A(j*Ts)||^2, j=1:N)||^2*Q1 
+%   + ||r_D(t)-r_A(t)||^2*Q2
+% r_D(t) = W*polyN(t,7);    r_A(t) = Y*polyN(t,7);
 
-cost = ev'*Q*ev + tf'*R*tf;
+rD = W*dpolyN(t,8,0);
+rA = Y*dpolyN(t,8,0);
+RA = [];
+for j=0:N
+    RA = [RA, Y*dpolyN(j*Ts,8,0)];
+end
+
+e1 = 1/N*sum(rD-RA,2);
+e2 = rD-rA;
+cost = e1'*Q1*e1 + e2'*Q2*e2;
+% dT = polyN(t,6);
+% dTf = polyN(tf,6);
+% C = dC(1);
+% 
+% ev = crossprodmat(Y*C*dTf)*X*C*dT; % Derivative error
+% 
+% cost = ev'*Q*ev + tf'*R*tf;
 end
 
 function varargout = trajNxtK(x0_cell, xs_cell, t0, tf, Ts)
