@@ -7,7 +7,7 @@ vehi_vec = cell(1,2);
 % Define Inital Positions
 p10 = [5;-5;5];
 % p20 = [-5;5;0];
-p20 = [1;-1;0];
+p20 = [-1;1;0];
 x0 = {p10, p20};
 
 vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);

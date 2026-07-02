@@ -29,15 +29,14 @@ knum = simT/Ts;
 %calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
 calc_traj_dt = Ts;
 recalc_step = calc_traj_dt/Ts;
-disc_dt = 0.1; % Time step between Reachability discs
-%disc_dt = Ts;
-disc_step = disc_dt/Ts;
 pred_hor = 60;
 discnum = 5;
+disc_step = floor(pred_hor/discnum);
+disc_dt = disc_step*Ts; % Time step between Reachability discs
 
 enable_prmtp = 1;
 enable_disp = 0;
-make_vid = 0;
+make_vid = 1;
 
 % === Init vehiStruct === &
 vehi_vec = init_all_vehi(Ts,pred_hor); % Cell vec with vehiSimStruct
@@ -85,7 +84,8 @@ for ind=1:numVehi
     vehi_vec{ind} = vehi;
 end
 
-vehiPred = vehi_vec{1}; % Auxilliary vehi for prediction
+%vehiPred = vehi_vec{1}; % Auxilliary vehi for prediction
+vehi_vecPred = vehi_vec; % Auxiliary vehi_vec for prediction
 
 % === Start Figure === %
 fig=figure('WindowState','maximized');
@@ -107,13 +107,14 @@ end
 
 % === Simulation === %
 telapse_total = tic;
-for k=1:knum-1 
-    disp(['=== Computing ', num2str(k*Ts), '/', num2str(simT), 's ===']);
+k=1;
+while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=1e-0 
+    disp(['=== Computing ', num2str(k), '/', num2str(knum), ' interval ===']);
+    disp(['t = ', num2str((k-1)*Ts),'s']);
     telapse_k = tic;
-    disp('----------------');
-    disp(['Computing ', num2str(k), ' time interval ']);
     for kVehi=1:numVehi
         vehi = vehi_vec{kVehi};
+        vehiPred = vehi_vecPred{kVehi};
         vehiSt = vehi.vehiSt;
         nx = vehiSt.nx;
         nx_full = nx+nx^2;
@@ -132,10 +133,10 @@ for k=1:knum-1
                 vehiPred.ctrlSt.auxSt = vehi.ctrlSt.auxSt;
                 for pred_k=k:min(k+pred_hor,knum)
                     %[vehi.xpred(:,pred_k+1), vehi.upred(:,pred_k), vehi.ctrlStpred.auxSt] = calcNxt(vehi.xpred(:,pred_k), vehi.pts_ref(:,end) , vehi, Ts);
-                    [vehiPred.x(:,pred_k+1), vehiPred.u(:,pred_k), vehiPred.ctrlSt.auxSt] = calcNxt(vehiPred.x(:,pred_k), vehiPred.pts_ref(:,end) , vehiPred, Ts);
+                    [vehiPred.x(:,pred_k+1), vehiPred.u(:,pred_k), vehiPred.ctrlSt.auxSt] = calcNxt(vehiPred.x(:,pred_k), vehiPred.pts_ref(:,2:end) , vehiPred, Ts);
                 end
                 % Test parametope plot
-                vehi.prmtpPatch = plotParametope(vehiSt.ysim0,vehiPred.x(nx+1:end,pred_k),vehiPred.x(1:nx,pred_k),nx,ops,vehi.prmtpPatch);
+                %vehi.prmtpPatch = plotParametope(vehiSt.ysim0,vehiPred.x(nx+1:end,pred_k),vehiPred.x(1:nx,pred_k),nx,ops,vehi.prmtpPatch);
                 %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(k:pred_k)),vehiPred.x(nx+1:end,k:pred_k),vehiPred.x(1:nx,k:pred_k),nx,ops,vehi.prmtpPatch);
             end
             % if discnum*disc_step >= size(vehi.xpred,2)
@@ -149,13 +150,14 @@ for k=1:knum-1
             % === Recalculate Trajectory (for Defender only) === %
             if kVehi~=1
                 %vehi.pts_ref(:,end) = vehi_vec{1}.x(:,k);
-                vehi.pts_ref(:,2:(pred_k-k+1)) = vehiPred.x(:,k+1:pred_k);
+                vehi.pts_ref(:,2:(pred_k-k+1)) = vehi_vecPred{1}.x(:,k:pred_k-1);
             end
 
             % === Update Plot === %
             %vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
             if enable_disp
-                vehi.prmtpPatch = plotParametope(vehiSt.ysim0,vehi.x(nx+1:end,k),vehi.x(1:nx,k),nx,ops,vehi.prmtpPatch);
+                prmtp_ind = k+1:disc_step:pred_k;
+                vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehiPred.x(nx+1:end,prmtp_ind),vehiPred.x(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
                 %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
             end
 
@@ -171,23 +173,26 @@ for k=1:knum-1
         addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
 
         vehi_vec{kVehi} = vehi;
+        vehi_vecPred{kVehi} = vehiPred;
 
         %legend({'target', 'r_T', 'Path'});
     end
     aux = v2m(vehi_vec{1,1}.x(18+1:end,pred_k),18);
     disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
+    disp('----------------');
     disp(' ');
     drawnow;
     pause(Ts);
     if make_vid == 1
         frame(k) = getframe(fig);
     end
+    k = k+1;
 end
 hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
 if make_vid == 1
-    vid=VideoWriter('test.mp4','MPEG-4');
+    vid=VideoWriter('test_v4.mp4','MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frame);

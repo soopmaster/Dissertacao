@@ -14,24 +14,30 @@ import casadi.*
 X = SX.sym('X',3*8,1); % States over optimization variable [m2v(W)]
 %tf = SX.sym('tf');
 %Y = MX.sym('om_y',3,8);
-P = SX.sym('P',3+3*8+1); % parameters which include x0 and reference [p_D(t0);t0;m2v(Y)]
+P = SX.sym('P',3*4+3*8+1); % parameters which include x0 and reference [pD(t0);vD(t0);aD(t0);jD(t0);t0;m2v(Y)]
 
 W = v2m(X(1:3*8),3);
 %tf = X(end);
 pD0 = P(1:3);
-t0 = P(4);
-Y = v2m(P(4+1:end),3); % Omega matrix for A
+vD0 = P(4:6);
+aD0 = P(7:9);
+jD0 = P(10:12);
+t0 = P(13);
+Y = v2m(P(4*3+1+1:end),3); % Omega matrix for A
 
 %C = [zeros(1,7);eye(7)];
-TN = dpolyN((N-1)*Ts,8,0);
-T0 = dpolyN(t0*Ts,8,0);
+%TN = dpolyN((N-1)*Ts,8,0);
+%T0 = dpolyN(t0,8,0);
 %Tf = polyN(tf*Ts,7);
 
-g = []; % Equality Constraints vector
-g = [g; W*T0-pD0]; % Initial condition constraints
+% Equality Constraints vector
+g = [W*dpolyN(t0,8,0)-pD0;
+     W*dpolyN(t0,8,1)-vD0;
+     W*dpolyN(t0,8,2)-aD0;
+     W*dpolyN(t0,8,3)-jD0]; % Initial condition constraints
 %g = [g; W*N-Y*T0]; % Final condition constraints
 obj = 0; % objective function
-for k=1:N
+for k=0:N
     Q1 = 0.5.*eye(3);
     if k==N
         Q1=5.*eye(3);
@@ -40,7 +46,7 @@ for k=1:N
     if k==N
         Q2=15.*eye(3);
     end
-    obj = jk(W,Y,t0+(k-1)*Ts,N,Q1,Q2,Ts);
+    obj = jk(W,Y,t0+(k)*Ts,N,Q1,Q2,Ts);
 end
 % make the decision vars one collumn vector
 OPT_variables = [m2v(W)];
@@ -84,8 +90,10 @@ auxSt.KK = KK;
 
 % Initial Conditions
 auxSt.t0 = 0*Ts;
-%auxSt.tf0 = N*Ts;
-auxSt.W0 = ones(3,8); % Init states decision variable
+auxSt.W0 = zeros(3,8); % Init states decision variable
+auxSt.dr = vehi.x0(4:6);
+auxSt.ddr = zeros(3,1);
+auxSt.dddr = zeros(3,1);
 
 ctrlSt.auxSt = auxSt;
 
@@ -97,6 +105,12 @@ end
 function [u, auxSt] = NMPC_prmtp_v2(x0,xs,auxSt,vehi,solver,args,Ts)
 % xs : set of A predictions
 nx = vehi.nx;
+t0 = auxSt.t0;
+%tf0 = auxSt.tf0;
+W0 = auxSt.W0;
+v0 = auxSt.dr;
+a0 = auxSt.ddr;
+j0 = auxSt.dddr;
 
 % generate A trajectory from 8 samples of xs
 k_step = floor(size(xs,2)/8);
@@ -104,13 +118,10 @@ t = (0:k_step:size(xs,2))';
 if length(t)>8
     t = t(1:end-1);
 end
-Y = trajectory3Dv3(Ts.*t,Ts,xs(1:3,(t+1)));
+Y = trajectory3Dv3(t0+Ts.*t,Ts,xs(1:3,(t+1)));
 Y = Y{1};
 
-t0 = auxSt.t0;
-%tf0 = auxSt.tf0;
-W0 = auxSt.W0;
-args.p = [x0(1:3); t0; m2v(Y)]; % set values of parameter vector
+args.p = [x0(1:3); v0; a0; j0; t0; m2v(Y)]; % set values of parameter vector
 args.x0 = [m2v(W0)]; % init value of optimization variables
 sol = solver('x0',args.x0,'lbx',args.lbx,'ubx',args.ubx,'lbg',args.lbg,'ubg',args.ubg,'p',args.p);
 
@@ -119,8 +130,9 @@ W = v2m(full(sol.x(1:3*8)),3);
 
 tnxt = t0+Ts;
 for k=1:4
-    rNxt{k} = W*[zeros(k-1,1); dpolyN(tnxt,8,k-1)];
+    rNxt{k} = W*[dpolyN(tnxt,8,k-1)];
 end
+auxSt.dr = rNxt{2}; auxSt.ddr = rNxt{3}; auxSt.dddr = rNxt{4};
 
 yaw_ref= 0;
 dyaw_ref= 0;
@@ -143,7 +155,7 @@ end
 
 function res = dpolyN(t,N,d) 
     % Compute d-th derivative of N-th order polynomial at point t
-    res = (factorial(d+(0:N-1-d))./factorial(0:N-1-d).*t.^(0:N-1-d))';
+    res = [zeros(d,1); (factorial(d+(0:N-1-d))./factorial(0:N-1-d).*t.^(0:N-1-d))'];
 end
 
 function C = dC(N)
