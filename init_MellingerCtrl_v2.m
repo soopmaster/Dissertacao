@@ -170,15 +170,22 @@ function cost = jk(W,Y,t,N,Q1,Q2,Ts)
 % r_D(t) = W*polyN(t,7);    r_A(t) = Y*polyN(t,7);
 
 rD = W*dpolyN(t,8,0);
+drD = W*dpolyN(t,8,1); % Velocity
+%drD = W*dpolyN(t,8,1);
 rA = Y*dpolyN(t,8,0);
 RA = [];
 for j=0:N
-    RA = [RA, Y*dpolyN(j*Ts,8,0)];
+    rA_j = Y*dpolyN(j*Ts,8,0);
+    %if drD*(rA_j-rD)>=0
+        RA = [RA, rA_j];
+    %end
 end
 
-e1 = 1/N*sum(rD-RA,2);
+Q3 = 1.*eye(3); % Penalty on velocity
+
+e1 = 1/N*sum(rD-RA,2); % Average distance between rD(k) and and rA
 e2 = rD-rA;
-cost = e1'*Q1*e1 + e2'*Q2*e2;
+cost = e1'*Q1*e1 + e2'*Q2*e2 + drD'*Q3*drD;
 % dT = polyN(t,6);
 % dTf = polyN(tf,6);
 % C = dC(1);

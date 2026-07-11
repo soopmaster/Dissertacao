@@ -15,9 +15,10 @@ vehi_vec{2}.vehiSt = init_QuadDroneNMPC(x0{2},Ts);
 
 % vehi_vec{1}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{1}.vehiSt);
 
-vehi_vec{1}.ctrlSt = init_MellingerCtrl(4,vehi_vec{1}.vehiSt);
+vehi_vec{1}.ctrlSt = init_MellingerCtrl(2,vehi_vec{1}.vehiSt);
+vehi_vec{2}.ctrlSt = init_NMPCctrl_v2(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
-vehi_vec{2}.ctrlSt = init_MellingerCtrl_v2(pred_hor,Ts,vehi_vec{2}.vehiSt);
+%vehi_vec{2}.ctrlSt = init_MellingerCtrl_v2(pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_MellingerCtrl(4,vehi_vec{2}.vehiSt);
 
 % === Define ops === %

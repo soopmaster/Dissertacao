@@ -29,14 +29,14 @@ knum = simT/Ts;
 %calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
 calc_traj_dt = Ts;
 recalc_step = calc_traj_dt/Ts;
-pred_hor = 60;
+pred_hor = 2;
 discnum = 5;
 disc_step = floor(pred_hor/discnum);
 disc_dt = disc_step*Ts; % Time step between Reachability discs
 
 enable_prmtp = 1;
-enable_disp = 0;
-make_vid = 1;
+enable_disp = 1;
+make_vid = 0;
 
 % === Init vehiStruct === &
 vehi_vec = init_all_vehi(Ts,pred_hor); % Cell vec with vehiSimStruct
@@ -108,7 +108,7 @@ end
 % === Simulation === %
 telapse_total = tic;
 k=1;
-while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=1e-0 
+while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=5e-1 
     disp(['=== Computing ', num2str(k), '/', num2str(knum), ' interval ===']);
     disp(['t = ', num2str((k-1)*Ts),'s']);
     telapse_k = tic;
@@ -155,7 +155,7 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=1e-0
 
             % === Update Plot === %
             %vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
-            if enable_disp
+            if enable_disp && kVehi==1
                 prmtp_ind = k+1:disc_step:pred_k;
                 vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehiPred.x(nx+1:end,prmtp_ind),vehiPred.x(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
                 %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
