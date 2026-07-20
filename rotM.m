@@ -3,6 +3,7 @@ function SO = rotM(s)
 % RotM = @(x)[cos(x(2))*cos(x(3)) cos(x(1))*sin(x(3))+sin(x(1))*sin(x(2))*cos(x(3)) sin(x(1))*sin(x(3))-cos(x(1))*sin(x(2))*cos(x(3));
 %         -cos(x(2))*sin(x(3)) cos(x(1))*cos(x(3))-sin(x(1))*sin(x(2))*sin(x(3)) cos(x(1))*sin(x(2))*sin(x(3))+sin(x(1))*cos(x(3));
 %         sin(x(2)) -sin(x(1))*cos(x(2)) cos(x(1))*cos(x(2))];
+% Equals R3(s(3))*R2(s(2))*R1(s(1))
 
     roll = s(1);
     pitch = s(2);

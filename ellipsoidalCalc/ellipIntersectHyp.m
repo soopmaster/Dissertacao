@@ -46,9 +46,16 @@ w = T'*wt + b/((c'*c)^(1/2))*c;
 W = T'*Wt*T;
 
 % If W is singular, reduce dimensions to not singular
-row_all_zeros = 1;
-while row_all_zeros <= size(W,1) && ~any(W(row_all_zeros,:)).is_zero()
+row_all_zeros = 0;
+not_zero_check = 1;
+while row_all_zeros <= size(W,1) && not_zero_check
     row_all_zeros = row_all_zeros+1;
+    switch class(W)
+        case 'double'
+            not_zero_check = any(W(row_all_zeros,:))~=0;
+        case 'casadi.SX'
+            not_zero_check = ~any(W(row_all_zeros,:)).is_zero();
+    end
 end  
 if row_all_zeros <= size(W,1)
     w = w(1:row_all_zeros-1);

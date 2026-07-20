@@ -163,6 +163,7 @@ ODEdynFunc = @(y,u) quadDroneODE(y,u,I,M,niu_v,niu_w);
 localJacFunc = @(x,u) quadDrone_jac([x;u],I,M,niu_v,niu_w);
 localDynFunc = @(y,u) fullDynFunc(@(x) ODEdynFunc(x,u), @(alph,x) prmtpU(alph,-localJacFunc(x,u),nx),y,nx); % rk4 system r.h.s
 vehiStruct.dynFunc = @(y,u) localDynFunc(y,u);
+vehiStruct.partDynFunc = @(y,u) quadDroneODE(y,u,I,M,niu_v,niu_w);
 vehiStruct.jacFunc = @(x,u) quadDrone_jac([x(1:nx);u],I,M,niu_v,niu_w);
 vehiStruct.trajFunc = @(t,pts) quadDrone_traj(t,pts,vehiStruct);
 vehiStruct.contrlFunc = @(x,ref) quadController(x,ref,vehiStruct);

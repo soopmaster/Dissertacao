@@ -29,7 +29,7 @@ knum = simT/Ts;
 %calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
 calc_traj_dt = Ts;
 recalc_step = calc_traj_dt/Ts;
-pred_hor = 2;
+pred_hor = 60;
 discnum = 5;
 disc_step = floor(pred_hor/discnum);
 disc_dt = disc_step*Ts; % Time step between Reachability discs
@@ -39,15 +39,9 @@ enable_disp = 1;
 make_vid = 0;
 
 % === Init vehiStruct === &
-vehi_vec = init_all_vehi(Ts,pred_hor); % Cell vec with vehiSimStruct
+vehi_vec = init_all_vehi_local(Ts,pred_hor); % Cell vec with vehiSimStruct
 numVehi = length(vehi_vec);
 % vehi_vec{1} is assumed to be the Invader 
-
-% === Define Critical Area === %
-p1_ref = [0;0;0];
-v1_ref = [0;0;0];
-pts_ref = [p1_ref; v1_ref; vehi_vec{1}.vehiSt.x0(3*2+1:end)];
-vehi_vec{1}.pts_ref = [vehi_vec{1}.vehiSt.x0, pts_ref];
 
 for ind=1:numVehi
     vehi = vehi_vec{ind};
@@ -55,19 +49,17 @@ for ind=1:numVehi
     nx_full = nx+nx^2;
 
     if ind ~= 1
-        pts_ref = vehi_vec{1}.vehiSt.x0;
-        vehi.pts_ref = [vehi.vehiSt.x0, pts_ref];
+        %pts_ref = vehi_vec{1}.vehiSt.x0;
+        %vehi.pts_ref = [vehi.vehiSt.x0, pts_ref];
+        vehi.pts_ref = repmat(vehi.vehiSt.x0,1,pred_hor+1);
+    else
+        % === Define Critical Area === %
+        p1_ref = [0;0;0];
+        v1_ref = [0;0;0];
+        pts_ref = [p1_ref; v1_ref; vehi.vehiSt.x0(3*2+1:end)];
+        vehi.pts_ref = [vehi.vehiSt.x0, repmat(pts_ref,1,1)];
+        %vehi.pts_ref = [vehi.vehiSt.x0, repmat(pts_ref,1,pred_hor)];
     end
-
-    % Generalized version should not need Trajectories
-    % % === Init Trajectories === %
-    % trajFunc = vehi.vehiSt.trajFunc;
-    % traj = trajFunc(vehi.trajt, vehi.pts_ref); % Compute Trajectory based on waypoints
-    % traj = [traj, traj(:,end).*ones(size(traj,1),knum-size(traj,2))]; % Pad Trajectory vec with last value
-    % vehi.traj = [traj; 0.*ones(1,knum); 0.*ones(1,knum)]; % Yaw and dYaw
-    % % if ind~=1
-    % %     vehi.traj = zeros(size(vehi.traj,1),0);
-    % % end
 
     % === Init Simulation Vectors === %
     vehi.x = zeros(nx_full,knum);
@@ -138,17 +130,17 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=5e-1
                 % Test parametope plot
                 %vehi.prmtpPatch = plotParametope(vehiSt.ysim0,vehiPred.x(nx+1:end,pred_k),vehiPred.x(1:nx,pred_k),nx,ops,vehi.prmtpPatch);
                 %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(k:pred_k)),vehiPred.x(nx+1:end,k:pred_k),vehiPred.x(1:nx,k:pred_k),nx,ops,vehi.prmtpPatch);
-            end
-            % if discnum*disc_step >= size(vehi.xpred,2)
-            %     prmtp_indend = size(vehi.xpred,2)-1;
-            % else
-            %     prmtp_indend = discnum*disc_step;
-            % end
-            % prmtp_ind = 1:disc_step:prmtp_indend;
-            % [vehi.alphpred, vehi.ypred] = calcParametopes(vehi.xpred(:,prmtp_ind), vehi.upred(:,prmtp_ind), vehi, Ts*disc_step);
-
-            % === Recalculate Trajectory (for Defender only) === %
-            if kVehi~=1
+            
+                % if discnum*disc_step >= size(vehi.xpred,2)
+                %     prmtp_indend = size(vehi.xpred,2)-1;
+                % else
+                %     prmtp_indend = discnum*disc_step;
+                % end
+                % prmtp_ind = 1:disc_step:prmtp_indend;
+                % [vehi.alphpred, vehi.ypred] = calcParametopes(vehi.xpred(:,prmtp_ind), vehi.upred(:,prmtp_ind), vehi, Ts*disc_step);
+    
+                % === Recalculate Trajectory (for Defender only) === %
+            else
                 %vehi.pts_ref(:,end) = vehi_vec{1}.x(:,k);
                 vehi.pts_ref(:,2:(pred_k-k+1)) = vehi_vecPred{1}.x(:,k:pred_k-1);
             end
@@ -197,6 +189,65 @@ if make_vid == 1
     open(vid);
     writeVideo(vid,frame);
     close(vid);
+end
+
+function vehi_vec = init_all_vehi_local(Ts,pred_hor)
+%INIT_ALL_VEHI outputs cell vector of vehiStruct
+%   Detailed explanation goes here
+
+vehi_vec = cell(1,2);
+
+% Define Inital Positions
+p10 = [5;-5;5];
+% p20 = [-5;5;0];
+p20 = [-1;1;0];
+x0 = {p10, p20};
+
+vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);
+vehi_vec{2}.vehiSt = init_QuadDroneNMPC(x0{2},Ts);
+
+% vehi_vec{1}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{1}.vehiSt);
+
+vehi_vec{1}.ctrlSt = init_MellingerCtrl(2,vehi_vec{1}.vehiSt);
+%vehi_vec{2}.ctrlSt = init_NMPCctrl_v2(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
+%vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
+vehi_vec{2}.ctrlSt = init_MellingerCtrl_v2(pred_hor,Ts,vehi_vec{2}.vehiSt);
+%vehi_vec{2}.ctrlSt = init_MellingerCtrl(4,vehi_vec{2}.vehiSt);
+
+% === Define ops === %
+ops = sdpsettings('verbose',0);
+ops.plot.shade = 0.15;
+ops.plot.linewidth=0.05;
+ops.plot.wirestyle=':';
+ops.plot.edgecolor='#EB4B2D';
+%ops.plot.edgecolor=[235 75 45];
+vehi_vec{1}.ops = ops;
+
+ops = sdpsettings('verbose',0);
+ops.plot.shade = 0.15;
+ops.plot.linewidth=0.05;
+ops.plot.wirestyle=':';
+ops.plot.edgecolor='#11F4BF';
+%ops.plot.edgecolor=[17 244 191];
+vehi_vec{2}.ops = ops;
+
+% === Init Plot Obs === %
+L = 0.5;
+p_NB = [L;0;0];
+p_SB = [-L;0;0];
+p_EB = [0;L;0];
+p_OB = [0;-L;0];
+p_vec = [p_NB; p_EB; p_SB; p_OB];
+vehi_vec{1}.p_vec = p_vec;
+
+L = 0.5;
+p_NB = [L;0;0];
+p_SB = [-L;0;0];
+p_EB = [0;L;0];
+p_OB = [0;-L;0];
+p_vec = [p_NB; p_EB; p_SB; p_OB];
+vehi_vec{2}.p_vec = p_vec;
+
 end
 
 function traj_new = calcTraj(xstart,xend,kcurr,Ts,knum,vehi)

@@ -38,13 +38,13 @@ g = [W*dpolyN(t0,8,0)-pD0;
 %g = [g; W*N-Y*T0]; % Final condition constraints
 obj = 0; % objective function
 for k=0:N
-    Q1 = 0.5.*eye(3);
+    Q1 = 0.1.*eye(3);
     if k==N
-        Q1=5.*eye(3);
+        Q1=1.*eye(3);
     end
     Q2 = 1.*eye(3);
     if k==N
-        Q2=15.*eye(3);
+        Q2=10.*eye(3);
     end
     obj = jk(W,Y,t0+(k)*Ts,N,Q1,Q2,Ts);
 end
@@ -98,13 +98,13 @@ auxSt.dddr = zeros(3,1);
 ctrlSt.auxSt = auxSt;
 
 % === Specific Function Handles === %
-ctrlSt.ctrlFunc = @(x0,xs,auxSt) NMPC_prmtp_v2(x0,xs,auxSt,vehi,solver,args,Ts);
+ctrlSt.ctrlFunc = @(x0,xs,auxSt) mellinger_v2(x0,xs,auxSt,N,vehi,solver,args,Ts);
 
 end
 
-function [u, auxSt] = NMPC_prmtp_v2(x0,xs,auxSt,vehi,solver,args,Ts)
+function [u, auxSt] = mellinger_v2(x0,xs,auxSt,pred_hor,vehi,solver,args,Ts)
 % xs : set of A predictions
-nx = vehi.nx;
+%nx = vehi.nx;
 t0 = auxSt.t0;
 %tf0 = auxSt.tf0;
 W0 = auxSt.W0;
@@ -112,6 +112,37 @@ v0 = auxSt.dr;
 a0 = auxSt.ddr;
 j0 = auxSt.dddr;
 
+Y = minPolyTraj(xs,t0,Ts);
+
+args.p = [x0(1:3); v0; a0; j0; t0; m2v(Y)]; % set values of parameter vector
+args.x0 = [m2v(W0)]; % init value of optimization variables
+W = solverPolyTraj(solver,args);
+
+xpred = zeros(length(x0),pred_hor);
+xpred(:,1) = x0;
+tnxt = t0;
+for ind=1:pred_hor
+    tnxt = tnxt+Ts;
+    [u(:,ind),rNxt] = trajNxtK(xpred(:,ind),W,tnxt,vehi,auxSt);
+    xpred(:,ind+1) = runge_kutta4(@(y) vehi.dynFunc(y,u(:,ind)), Ts, xpred(:,ind));
+    if ind==1
+        auxSt.dr = rNxt{2}; auxSt.ddr = rNxt{3}; auxSt.dddr = rNxt{4};
+        auxSt.t0 = tnxt;
+    end
+end
+ 
+%auxSt.tf0 = tf;
+auxSt.W0 = W;
+end
+
+function W = solverPolyTraj(solver,args)
+sol = solver('x0',args.x0,'lbx',args.lbx,'ubx',args.ubx,'lbg',args.lbg,'ubg',args.ubg,'p',args.p);
+
+W = v2m(full(sol.x(1:3*8)),3);
+%tf = full(sol.x(end));
+end
+
+function Y = minPolyTraj(xs,t0,Ts)
 % generate A trajectory from 8 samples of xs
 k_step = floor(size(xs,2)/8);
 t = (0:k_step:size(xs,2))';
@@ -120,48 +151,6 @@ if length(t)>8
 end
 Y = trajectory3Dv3(t0+Ts.*t,Ts,xs(1:3,(t+1)));
 Y = Y{1};
-
-args.p = [x0(1:3); v0; a0; j0; t0; m2v(Y)]; % set values of parameter vector
-args.x0 = [m2v(W0)]; % init value of optimization variables
-sol = solver('x0',args.x0,'lbx',args.lbx,'ubx',args.ubx,'lbg',args.lbg,'ubg',args.ubg,'p',args.p);
-
-W = v2m(full(sol.x(1:3*8)),3);
-%tf = full(sol.x(end));
-
-tnxt = t0+Ts;
-for k=1:4
-    rNxt{k} = W*[dpolyN(tnxt,8,k-1)];
-end
-auxSt.dr = rNxt{2}; auxSt.ddr = rNxt{3}; auxSt.dddr = rNxt{4};
-
-yaw_ref= 0;
-dyaw_ref= 0;
-u = mellinger_controller(auxSt.KK,rNxt{1},rNxt{2},rNxt{3},rNxt{4},yaw_ref,dyaw_ref,x0(1:nx),vehi.I,vehi.M);
-
-% Clamp u to bounds
-u(1) = min(max(u(1),vehi.Fmin),vehi.Fmax);
-tauBnorm = norm(u(2:3));
-if tauBnorm == 0
-    u(2:4) = [0;0;0];
-elseif tauBnorm > vehi.tauBmax
-    scale = vehi.tauBmax/tauBnorm;
-    u(2:4) = scale.*u(2:4);
-end
-
-auxSt.t0 = tnxt;
-%auxSt.tf0 = tf;
-auxSt.W0 = W;
-end
-
-function res = dpolyN(t,N,d) 
-    % Compute d-th derivative of N-th order polynomial at point t
-    res = [zeros(d,1); (factorial(d+(0:N-1-d))./factorial(0:N-1-d).*t.^(0:N-1-d))'];
-end
-
-function C = dC(N)
-    % Matrix that transforms a 3x8 parameter matrix into corresponding
-    % 3x(8-1) derivative
-    C = [zeros(N,8-N);eye(8-N)];
 end
 
 function cost = jk(W,Y,t,N,Q1,Q2,Ts)
@@ -171,6 +160,8 @@ function cost = jk(W,Y,t,N,Q1,Q2,Ts)
 
 rD = W*dpolyN(t,8,0);
 drD = W*dpolyN(t,8,1); % Velocity
+ddrD = W*dpolyN(t,8,2); % Acceleration
+dddrD = W*dpolyN(t,8,3); % Jerk
 %drD = W*dpolyN(t,8,1);
 rA = Y*dpolyN(t,8,0);
 RA = [];
@@ -185,43 +176,30 @@ Q3 = 1.*eye(3); % Penalty on velocity
 
 e1 = 1/N*sum(rD-RA,2); % Average distance between rD(k) and and rA
 e2 = rD-rA;
-cost = e1'*Q1*e1 + e2'*Q2*e2 + drD'*Q3*drD;
-% dT = polyN(t,6);
-% dTf = polyN(tf,6);
-% C = dC(1);
-% 
-% ev = crossprodmat(Y*C*dTf)*X*C*dT; % Derivative error
-% 
-% cost = ev'*Q*ev + tf'*R*tf;
+% cost = e1'*Q1*e1 + e2'*Q2*e2 + drD'*Q3*drD;
+cost = e1'*Q1*e1 + e2'*Q2*e2 + dddrD'*Q3*dddrD;
 end
 
-function varargout = trajNxtK(x0_cell, xs_cell, t0, tf, Ts)
-    % calculate trajectory and return next point
+function [u,rNxt] = trajNxtK(x0,W,tnxt,vehi,auxSt)
+nx = vehi.nx;
 
-    r0 = x0_cell{1}; rd = xs_cell{1};
-    dr0 = x0_cell{2}; drd = xs_cell{2};
-    ddr0 = x0_cell{3}; ddrd = xs_cell{3};
-    dddr0 = x0_cell{4}; dddrd = xs_cell{4};
+for k=1:4
+    rNxt{k} = W*[dpolyN(tnxt,8,k-1)];
+end
 
-    % tf is some function of the distance between points
-    %tf = floor(norm(rd-r0)/2/Ts)*Ts; % Assume average speed
-    t1 = t0+Ts;
-    tf = max(tf,t1);
-    w_aux = trajectory3Dv2([t0;tf], Ts, [r0,rd], [dr0,drd], [ddr0,ddrd], [dddr0,dddrd]);
-    w_aux = w_aux{1};
+yaw_ref= 0;
+dyaw_ref= 0;
+u = mellinger_controller(auxSt.KK,rNxt{1},rNxt{2},rNxt{3},rNxt{4},yaw_ref,dyaw_ref,x0(1:nx),vehi.I,vehi.M);
 
-    traj_order = 4;
-    prod_vec = ones(1,2*traj_order);
-    for k=1:nargout
-        pow_vec = 2*traj_order-k:-1:1;
-        rx = polyval(prod_vec.*w_aux(1,end:-1:k),t1);
-        ry = polyval(prod_vec.*w_aux(2,end:-1:k),t1);
-        rz = polyval(prod_vec.*w_aux(3,end:-1:k),t1);
-        
-        prod_vec = prod_vec(1:length(pow_vec)).*pow_vec;
-        r = [rx; ry; rz]; % Coordinate of trajectory position
-        varargout{k} = r;
-    end
+% Clamp u to bounds
+u(1) = min(max(u(1),vehi.Fmin),vehi.Fmax);
+tauBnorm = norm(u(2:3));
+if tauBnorm == 0
+    u(2:4) = [0;0;0];
+elseif tauBnorm > vehi.tauBmax
+    scale = vehi.tauBmax/tauBnorm;
+    u(2:4) = scale.*u(2:4);
+end
 end
 
 function [u, auxSt] = quadController(x0, xs, auxSt, tf, vehi)

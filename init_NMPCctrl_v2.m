@@ -19,9 +19,8 @@ function [ctrlSt] = init_NMPCctrl_v2(ny,N,Ts,vehi)
 % Multiple shooting OCP to transform to NLP
 
 % Notes: I should be tracking error
-% Maybe have several control modes; first to approach target, then to align
-% Note: This is failing! It may be because problem is degenerate, i.e.
-% information is lost
+% Also... this + the R18 quadCopter model literally crashes my PC when attempting to create the solver 
+% Maybe try with lighter model
 
 import casadi.*
 
@@ -49,15 +48,18 @@ for k=1:N
     xk = X(:,k);
 
     % 1) Intersect Rn ellipsoids with R3 hyperplane to get R3 ellipsoids
-    C = eye(nx);
-    C = C(:,4:end);
-    B = zeros(size(C,2),1);
+    Cx = eye(nx);
+    Cx = Cx(:,4:end);
+    Bx = zeros(size(Cx,2),1);
+    Cy = eye(ny);
+    Cy = Cy(:,4:end);
+    By = zeros(size(Cy,2),1);
 
     QD = v2m(xk(nx+1:end),nx);
     QA = v2m(ref(ny+1:end),ny);
 
-    [~,WD] = ellipIntersectPoly(zeros(nx,1),QD,C,B);
-    [~,WA] = ellipIntersectPoly(zeros(ny,1),QA,C,B);
+    [~,WD] = ellipIntersectPoly(zeros(nx,1),QD,Cx,Bx);
+    [~,WA] = ellipIntersectPoly(zeros(ny,1),QA,Cy,By);
     wD = xk(1:3);
     wA = ref(1:3);
 
@@ -66,7 +68,7 @@ for k=1:N
         Qk=15.*eye(3);
     end
     Qmk = 0.00000001;
-    Rk = 1.*eye(4);
+    Rk = 1.*eye(nu);
     uk = U(:,k);
     obj = obj + jk(wD,WD,wA,WA,uk,Qk,Qmk,Rk); % Calc objective
     xk_1 = X(:,k+1); % xk+1
@@ -120,10 +122,10 @@ ctrlSt.ctrlFunc = @(x0,xs,auxSt) NMPC_prmtp(x0,xs,auxSt,solver,args,N,nx_full,nu
 
 end
 
-function [u_out, auxSt] = NMPC_prmtp(x0,xs,auxSt,solver,args,N,nx_full,nu)
+function [u, auxSt] = NMPC_prmtp(x0,xs,auxSt,solver,args,N,nx_full,nu)
 u0 = auxSt.u0;
 X0 = auxSt.X0;
-args.p = [x0;xs]; % set values of parameter vector
+args.p = [x0;xs(:,end)]; % set values of parameter vector
 args.x0 = [m2v(X0); m2v(u0)]; % init value of optimization variables
 sol = solver('x0',args.x0,'lbx',args.lbx,'ubx',args.ubx,'lbg',args.lbg,'ubg',args.ubg,'p',args.p);
 u = v2m(full(sol.x(nx_full*(N+1)+1:end)),nu); % control input from solution
