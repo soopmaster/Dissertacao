@@ -1,4 +1,4 @@
-function [cM,c] = prmtpEllips_c(range_struct,symvars,varbounds,Dfxo_vec,alph_vec,dim,code,hasVarMx,constDfMx)
+function [maxEigM,c] = prmtpEllips_c(range_struct,symvars,varbounds,Dfxo_vec,alph_vec,dim,code,hasVarMx,constDfMx)
 % Computes offset constant "c" of ellipsoidal parametope
     % Variables for ODE: x = y(k)
     %   E(xo,alph,y) = c*y
@@ -41,6 +41,7 @@ function [cM,c] = prmtpEllips_c(range_struct,symvars,varbounds,Dfxo_vec,alph_vec
     nvar = size(code,1);
     % c = +inf;
     c = -inf;
+    maxEigM = -inf.*ones(dim,1);
     cM = eye(dim);
     for k=1:2^nvar-1
         Mi = constDfMx;
@@ -57,7 +58,9 @@ function [cM,c] = prmtpEllips_c(range_struct,symvars,varbounds,Dfxo_vec,alph_vec
         alph_err = alph*err/alph; 
         cM_temp = alph_err'+alph_err;
         % c_temp = min(eig(cM_temp));
-        c_temp = max(eig(cM_temp));
+        eigM = eig(cM_temp);
+        maxEigM = max([eigM';maxEigM'])';
+        c_temp = max(eigM);
         if c_temp>c
             c = c_temp;
             cM = cM_temp;

@@ -17,10 +17,10 @@ surface = 1;
 dim = size(P_inv,2);
 
 if (nargin==6)&(efficient==1)
-    A = r.*P_inv;
+    A = P_inv/r;
 elseif (nargin==5)|((nargin==6)&(efficient==0))
 %     try
-        A = inv(sqrtm(r.*P_inv));
+        A = inv(sqrtm(P_inv/r));
 %     catch err
 %         1
 %     end

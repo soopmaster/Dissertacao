@@ -29,7 +29,7 @@ knum = simT/Ts;
 %calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
 calc_traj_dt = Ts;
 recalc_step = calc_traj_dt/Ts;
-pred_hor = 50;
+pred_hor = 10;
 discnum = 5;
 disc_step = floor(pred_hor/discnum);
 disc_dt = disc_step*Ts; % Time step between Reachability discs
@@ -53,29 +53,29 @@ for ind=1:numVehi
     nx = vehi.vehiSt.nx;
     nx_full = nx+nx^2;
 
-    if ind ~= 1
-        %pts_ref = vehi_vec{1}.vehiSt.x0;
-        %vehi.pts_ref = [vehi.vehiSt.x0, pts_ref];
-        vehi.pts_ref = repmat(vehi.vehiSt.x0,1,pred_hor+1);
-    else
+    if ind == 1
         % === Define Critical Area === %
         p1_ref = [0;0;0];
-        v1_ref = [0;0;0];
+        v1_ref = [-5;5;-5];
         pts_ref = [p1_ref; v1_ref; vehi.vehiSt.x0(3*2+1:end)];
         vehi.pts_ref = [vehi.vehiSt.x0, repmat(pts_ref,1,pred_hor)];
+    else
+        pts_ref = repmat(vehi_vec{1}.vehiSt.x0,1,pred_hor+1);
+        vehi.pts_ref = pts_ref;
+        %vehi.pts_ref = repmat(vehi.vehiSt.x0,1,pred_hor+1);
     end
 
     % === Init Simulation Vectors === %
     vehi.x = zeros(nx_full,knum);
-    vehi.x(:,1) = vehi.pts_ref(:,1);
+    vehi.x(:,1) = vehi.vehiSt.x0;
     vehi.u = zeros(vehi.vehiSt.nu,knum);
     vehi.u(:,1) = vehi.vehiSt.u0;
 
-    vehi.alph = zeros(vehi.vehiSt.nx^2,knum/recalc_step);
-    vehi.alph(:,1) = reshape(vehi.vehiSt.alph0,[],1);
-
-    vehi.y = zeros(1,knum/recalc_step);
-    vehi.y(1) = vehi.vehiSt.ysim0;
+    % vehi.alph = zeros(vehi.vehiSt.nx^2,knum/recalc_step);
+    % vehi.alph(:,1) = reshape(vehi.vehiSt.alph0,[],1);
+    % 
+    % vehi.y = zeros(1,knum/recalc_step);
+    % vehi.y(1) = vehi.vehiSt.ysim0;
 
     vehi.error_track = [];
 
@@ -101,7 +101,7 @@ for ind=1:numVehi
     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
-
+%%
 % === Simulation === %
 telapse_total = tic;
 k=1;
@@ -196,7 +196,7 @@ xlabel('$t [s]$','Interpreter','latex');
 legend;
 hold off;
 
-save prmtpV5_data.mat vehi_vec % Save sim results (probably can't support casadi solver)
+%save prmtpV5_data.mat vehi_vec % Save sim results (probably can't support casadi solver)
 
 function vehi_vec = init_all_vehi_local(Ts,pred_hor)
 %INIT_ALL_VEHI outputs cell vector of vehiStruct
@@ -310,6 +310,8 @@ vehiSt = vehi.vehiSt;
 ctrlSt = vehi.ctrlSt;
 auxSt = ctrlSt.auxSt;
 
+nx = vehiSt.nx;
+
 % Compute predictions whether controller returns horizon of u values or not
 dynFunc = vehiSt.dynFunc;
 xpred = zeros(length(xk),pred_hor);
@@ -321,7 +323,26 @@ xpred(:,1) = xk;
 % === Calculate System === %
 for ind=1:size(u,2)
     xpred(:,ind+1) = runge_kutta4(@(y) dynFunc(y,u(:,ind)), Ts, xpred(:,ind));
+
+    alph = v2m(xpred(nx+1:end,ind),nx);
+    Q = alph'*alph;
+    C = eye(nx);
+    C = C(:,4:end);
+    B = zeros(size(C,2),1);
+
+    % % Sometimes eigenvalue is negative because previous matrix is close to singular. Just switch sign for now
+    % [e_vec,e_val] = eig(Q);
+    % Q = e_vec*(sign(e_val).*e_val)*e_vec';
+
+    % % Use Ridge Regression (Tikhonov Regression) if Q is close to singular
+    % Tikh_coef = 1e-2;
+    % Q = Q + Tikh_coef.*eye(nx);
+
+    [~,W] = ellipIntersectPoly(zeros(nx,1),Q,C,B);
+    scale_factor(:,ind) = eig(W); % Compute axis scaling factors of ellipsoid (eigen values)
 end
+% Pass predicted scaling factors to auxSt
+auxSt.scale_factor = scale_factor;
 
 end
 

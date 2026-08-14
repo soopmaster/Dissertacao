@@ -79,29 +79,31 @@ x0 = [p_cm0; v0; A0_vec; omega0B];
 
 % Initialize parametope parameters (alph0, ysim0)
 delta_p = [0.0808; 0.0800; 0.1069];
-del_pinv = [1/delta_p(1); 1/delta_p(2); 1/delta_p(2)];
 
 delta_v = 10^-3.*[4.6354e-04; 4.6195e-04; 0.2676*2];
-del_vinv = [1/delta_v(1); 1/delta_v(2); 1/delta_v(2)];
 
 delta_A = [0.0000	0.0000	0.0092;
            0.0000	0.0000	0.0091;
            0.0092	0.0091	0.0000]+1.0e-5;
-del_Ainv = [1/delta_A(1,1) 1/delta_A(1,2) 1/delta_A(1,2);
-            1/delta_A(2,1) 1/delta_A(2,2) 1/delta_A(2,2);
-            1/delta_A(3,1) 1/delta_A(3,2) 1/delta_A(3,2);];
+% delta_A = [0.0000	0.0000	0.0092;
+%            0.0000	0.0000	0.0091;
+%            0.0092	0.0091	0.0000];
 
 delta_w = [1.8262; 1.8325; 0.0000]+1.0e-5.*ones(3,1);
-del_winv = [1/delta_w(1); 1/delta_w(2); 1/delta_w(2)];
+% delta_w = [1.8262; 1.8325; 0.0000];
 
 % alph0_pre = diag(2.*[del_pinv; del_vinv; reshape(del_Ainv,[],1); del_winv])^2;
-alph0_pre = diag(2.*[del_pinv; del_vinv; reshape(del_Ainv,[],1); del_winv]);
+alph0inv = diag([delta_p; delta_v; m2v(delta_A); delta_w]);
+alph0_pre = inv(alph0inv);
+% x'*(alph0_pre'*alph0_pre)*x <= 1
 
-rad_sqr = min(eig(alph0_pre'*alph0_pre))^-1;
-vehiStruct.ysim0 = rad_sqr;
+eigAlph0 = eig(alph0_pre);
+rad = max(eigAlph0(1:3))^-1;
+vehiStruct.ysim0 = rad^2;
 
-alph0=rad_sqr.*alph0_pre;
+alph0=rad.*alph0_pre;
 vehiStruct.alph0 = alph0;
+% x'*(alph0'*alph0)*x <= ysim0
 
 vehiStruct.x0 = [x0;m2v(alph0)];
 
@@ -135,15 +137,19 @@ dxsym = quadDroneODE(xsym,usym,I,M,niu_v,niu_w);
 Df = jacobian(dxsym, xsym);
 
 % === Bounds of state and input variables == %
+% Fmax = 20;
 Fmax = 20;
 vehiStruct.Fmax = Fmax;
 Fmin = 0.0001;
 vehiStruct.Fmin = Fmin;
-varmin = [-0.*ones(3,1); -0.*ones(3,1); -0.*ones(9,1); -0.*ones(3,1)];
-varmax = [0.*ones(3,1); 0.*ones(3,1); 0.*ones(9,1); 0.*ones(3,1)];
+% varmin = [-0.*ones(3,1); -0.*ones(3,1); -0.*ones(9,1); -0.*ones(3,1)];
+% varmax = [0.*ones(3,1); 0.*ones(3,1); 0.*ones(9,1); 0.*ones(3,1)];
+varmin = [-delta_p; -delta_v; -0.*ones(9,1); -0.*ones(3,1)];
+varmax = [delta_p; delta_v; 0.*ones(9,1); 0.*ones(3,1)];
 varbounds = [varmin, varmax];
 %tauBmax = 0.0007*pi;
 tauBmax = pi;
+% tauBmax = 50;
 vehiStruct.tauBmax = tauBmax;
 ubounds_max = [Fmax; tauBmax.*ones(3,1)];
 ubounds_min = [Fmin; -tauBmax.*ones(3,1)];
@@ -167,7 +173,7 @@ vehiStruct.partDynFunc = @(y,u) quadDroneODE(y,u,I,M,niu_v,niu_w);
 vehiStruct.jacFunc = @(x,u) quadDrone_jac([x(1:nx);u],I,M,niu_v,niu_w);
 vehiStruct.trajFunc = @(t,pts) quadDrone_traj(t,pts,vehiStruct);
 vehiStruct.contrlFunc = @(x,ref) quadController(x,ref,vehiStruct);
-vehiStruct.bodyPlot = @() patch(Xvec, Yvec, Zvec, [0 0 1]);
+vehiStruct.bodyPlot = @() patch(Xvec+p0(1), Yvec+p0(2), Zvec+p0(3), [0 0 1]);
 vehiStruct.plotBodyFunc = @(x,patch) quadDrone_plotBody(x,patch,p_vec);
 end
 

@@ -46,12 +46,13 @@ ops = sdpsettings('verbose',0);
 enable_disp = 1;
 dt = 0.01;
 t_dur = 0:dt:10;
-inner_step = 20;
+inner_step = 10;
 initial_state = [1.505,1.505,0.005,0.005]';
 dimension = 4;
 
-Initial_alph = [2.5063   -0.0276    0.9436    0.0280 ; -0.0276    2.4722    0.0013    0.9537; 0.9436    0.0013    2.2441    0.0151; 0.0280    0.9537 0.0151    2.2845]^(1/2);
-initial_offset=0.02;
+Initial_P = [2.5063   -0.0276    0.9436    0.0280 ; -0.0276    2.4722    0.0013    0.9537; 0.9436    0.0013    2.2441    0.0151; 0.0280    0.9537 0.0151    2.2845]^(1/2);
+initial_offset=0.02^2;
+Initial_alph = sqrt(diag(eig(Initial_P)));
 
 [t_precise,x_precise] = ode45(@robotArmODE,t_dur,initial_state);
 x_precise = x_precise';
@@ -64,15 +65,16 @@ assume(varmin'+initial_state'<symvars & symvars<varmax'+initial_state');
 
 if enable_disp
     figure;
-    plot(x_precise(1,:),x_precise(2,:));
-    xlim = ylim;
     hold on;
+    axis equal;
+    plot(x_precise(1,:),x_precise(2,:));
+    %xlim = ylim;
     scatter(initial_state(1),initial_state(2),180,'x','b','linewidth',2);
     xlabel('x1','FontSize', 12);
     ylabel('x2','FontSize', 12);
     drawnow;
     if enable_disp
-        plot_ellipsoid_offset(x_precise([1,2],1),Initial_alph([1,2],[1,2]),initial_offset,'r');
+        plot_ellipsoid_offset(x_precise([1,2],1),Initial_P([1,2],[1,2]),initial_offset,2,'r');
     end
 end
 
@@ -121,12 +123,13 @@ for k=1:knum-1
     end
 
     %Dfxo = Dfxo_vec(Df,symvars,x(:,k)');
-    Dfxo = reshape(robot_jac(x(:,k)),1,[]);
+    Dfxo = robot_jac(x(:,k));
     %reshape(Dfxo,dimension,[])
     % [t,y] = ode45(@(t,y) robot_prmtpU(y,Dfxo,dimension),[0 dt],alph_vec(:,k));
     % alph_vec(:,k+1) = y(end,:)';
-    alph_vec(:,k+1) = runge_kutta4(@(y) prmtpU(y,Dfxo,dimension),dt*inner_step,alph_vec(:,k));
-    alph = reshape(alph_vec(:,k+1),dimension,[]);
+    alph = runge_kutta4(@(y) prmtpU(y,Dfxo,dimension),dt*inner_step,v2m(alph_vec(:,k),dimension));
+    alph_vec(:,k+1) = m2v(alph);
+    P = alph'*alph;
 
     %assume(varmin'+x(:,k)'<symvars & symvars<varmax'+x(:,k)');
     varbounds(:,1) = varbounds_init(:,1)+x(:,k);
@@ -135,11 +138,11 @@ for k=1:knum-1
     % ysim(:,k+1) = y(end,:)';
 
     % Calculate c just once outside of runge-kutta
-    parametope_c = prmtpEllips_c(range_struct,symvars,varbounds,Dfxo,alph_vec(:,k),dimension,code,hasVarMx,constDfMx);
+    [~,parametope_c] = prmtpEllips_c(range_struct,symvars,varbounds,Dfxo,alph,dimension,code,hasVarMx,constDfMx);
     ysim(k+1) = runge_kutta4(@(y) prmtpE(y,parametope_c), dt*inner_step, ysim(k));
    
     disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
-    plot_ellipsoid_offset(x([1,2],k),alph(1:2,1:2),ysim(k),'r');
+    plot_ellipsoid_offset(x([1,2],k),P(1:2,1:2),ysim(k),2,'r');
     drawnow;
 
 end

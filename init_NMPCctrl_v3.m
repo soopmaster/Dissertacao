@@ -22,7 +22,7 @@ function [ctrlSt] = init_NMPCctrl_v3(ny,N,Ts,vehi)
 import casadi.*
 
 nx = vehi.nx;
-%nx_full = nx+nx^2;
+nx_full = nx+nx^2;
 ny_full = ny+ny^2;
 nu = vehi.nu;
 
@@ -32,7 +32,8 @@ rk4 = runge_kutta4(@(xfull) vehi.partDynFunc(xfull,u),Ts,x); % rk4 system r.h.s
 
 f = Function('f',{x,u},{rk4},{'xk','uk'},{'xk_1'});
 U = SX.sym('U',nu,N); % decision variables (control)
-P = SX.sym('P',nx+ny_full*N); % parameters which include x0 and reference [x0;ref1;ref2;...;refN]
+% P = SX.sym('P',nx+3*N+ny_full*N); % parameters which include x0 and reference [x0;alphD0;alphD1...;ref1;ref2;...;refN]
+P = SX.sym('P',nx+3*N+(ny+3^2)*N); % parameters which include x0 and reference [x0;alphD0;alphD1...;ref1;ref2;...;refN]
 X = SX.sym('X',nx,N+1); % States over optimization problem
 D_KL = SX.sym('DKL',N);
 
@@ -40,9 +41,11 @@ g = []; % Constraints vector
 
 xk = X(:,1); % initial state
 g = [g; xk-P(1:nx)]; % Initial condition constraints
-Y = v2m(P(nx+1:end),ny_full); % reference
+% Y = v2m(P(nx+3*N+1:end),ny_full); % reference
+Y = v2m(P(nx+3*N+1:end),(ny+3^2)); % reference
+scale_vec = v2m(P(nx+1:nx+3*N),3); % Parametope alph
 
-Obj = Jfunc(X,Y,U,D_KL,ny); % Get Cost Function
+Obj = Jfunc(X,Y,U,scale_vec,D_KL,ny); % Get Cost Function
 obj = Obj.obj_d + Obj.obj_u + Obj.obj_DKL;
 
 for k=1:N
@@ -94,6 +97,7 @@ args.ubx(length(bx)+1:length(bx)+length(lbu),1) = ubu;
 auxSt.error_track = zeros(6,1);
 auxSt.u0 = repmat(vehi.u0,1,N);
 auxSt.X0 = repmat(vehi.x0,1,N+1); % Init states decision variable
+auxSt.scale_factor = ones(3,N); % Scaling factors for axis of reduced parametopes
 
 ctrlSt.auxSt = auxSt;
 
@@ -105,7 +109,57 @@ end
 function [u, auxSt] = NMPC_prmtp(x0,xs,auxSt,solver,args,N,nx,nu,ny)
 u0 = auxSt.u0;
 X0 = auxSt.X0;
-args.p = [x0(1:nx);m2v(xs)]; % set values of parameter vector
+scale = auxSt.scale_factor;
+paramWA = xs(1:(ny+3^2),:);
+
+Cy = eye(ny);
+Cy = Cy(:,4:end);
+By = zeros(size(Cy,2),1);
+
+% Condition input data! and 
+% scale entries should be positive. 
+% all xs alphs should be full rank.
+tol = 1.5e-15;
+Tikh_coef = 1e-5;
+for k=1:size(xs,2)
+    scale(:,k) = 0.5.*[0.1;0.1;1];
+    if any(scale(:,k)<=0)
+        scale(:,k) = scale(:,k) + (-min(scale(:,k)) + Tikh_coef).*ones(size(scale(:,k)));
+    end
+
+    alphA = v2m(xs(ny+1:end,k),ny);
+
+    QA = alphA'*alphA;
+    [~,WA] = ellipIntersectPoly(zeros(ny,1),QA,Cy,By);
+
+    % [evecA,evalA] = eig(QA);
+    [evecA,evalA] = eig(WA);
+    evalA1 = diag(evalA);
+    if 1
+        % any(evalA1<=0)
+        %evalAnew = evalA1 + (-min(evalA1) + Tikh_coef).*ones(size(evalA1));
+        evalAnew = 0.5.*[0.1;0.1;1];
+        % QA = evecA*diag(evalAnew)*evecA';
+        WA = evecA*diag(evalAnew)*evecA';
+        %sc = (-min(evalA) + Tikh_coef);
+        %QA = QA+sc.*eye(ny);
+    end
+    
+    % %closeToSing = (rank(alphA) < size(alphA,1));
+    % alphA_aux = alphA;
+    % closeToSing = rcond(alphA_aux'*alphA_aux) < tol;
+    % Tikh_coef = 1e-15;
+    % while closeToSing
+    %     % Use Ridge Regression (Tikhonov Regression) if QA is close to singular
+    %     Tikh_coef = Tikh_coef*1e1;
+    %     alphA_aux = alphA + Tikh_coef.*eye(ny);
+    %     closeToSing = rcond(alphA_aux'*alphA_aux) < tol;
+    % end
+    % paramQA(ny+1:end,k) = m2v(QA);
+    paramWA(ny+1:end,k) = m2v(WA);
+end
+
+args.p = [x0(1:nx); m2v(scale); m2v(paramWA)]; % set values of parameter vector
 args.x0 = [m2v(X0(1:nx,:)); m2v(u0)]; % init value of optimization variables
 sol = solver('x0',args.x0,'lbx',args.lbx,'ubx',args.ubx,'lbg',args.lbg,'ubg',args.ubg,'p',args.p);
 u = v2m(full(sol.x(nx*(N+1)+1:end)),nu); % control input from solution
@@ -113,27 +167,28 @@ u_out = u(:,1);
 
 % Record Error/Cost!
 D_KL = [];
-E = Jfunc(X0,xs,u0,D_KL,ny);
+E = Jfunc(X0,paramWA,u0,scale,D_KL,ny);
 auxSt.error_track = [E.obj_d; E.obj_u; E.obj_DKL; E.unsObj_d; E.unsObj_u; E.unsObj_DKL];
 
 auxSt.X0 = v2m(full(sol.x(1:nx*(N+1))),nx); % history of solution TRAJECTORY accross horizon
 auxSt.u0 = [u(:,2:end), u(:,end)];
 end
 
-function KK = ctrl_gains(k)
+function KK = ctrl_gains(k,N)
 % Return control gains at k prediction horizon step
-K0 = 30; % Start gain
-KN = 1; % End Gain
-steep = 1; % Steepness of exponential
+K0 = 1; % Start gain
+KN = 150; % End Gain
+steep = 2; % Steepness of exponential
 
-Qd = exp(steep*(-k+log(K0-KN)/steep)) + KN;
-R = 0.1;
-Qm = 1;
+%Qd = exp(steep*(-k+log(K0-KN)/steep)) + KN; % Starts big, goes down
+Qd = exp(steep*(k-N+log(KN-K0)/steep)) + K0; % starts small, goes up
+R = 0.01;
+Qm = 2;
 
 KK.Qd = Qd; KK.R = R; KK.Qm = Qm;
 end
 
-function [Obj] = Jfunc(X,Y,U,D_KL,ny)
+function [Obj] = Jfunc(X,Y,U,scale,D_KL,ny)
 % Given X [nx, N+1], Y [ny_full, N] and U [nu, N] compute cost function for
 % NMPC along prediction horizon
 % Obj : Struct that contains scaled and unscaled objective function
@@ -157,24 +212,39 @@ for k=1:N
     Cx = eye(nx);
     Cx = Cx(:,4:end);
     Bx = zeros(size(Cx,2),1);
-    Cy = eye(ny);
-    Cy = Cy(:,4:end);
-    By = zeros(size(Cy,2),1);
+    % Cy = eye(ny);
+    % Cy = Cy(:,4:end);
+    % By = zeros(size(Cy,2),1);
 
-    QA = v2m(ref(ny+1:end),ny);
+    %alphA = v2m(ref(ny+1:end),ny);
+    %QA = alphA'*alphA;
+    % QA = v2m(ref(ny+1:end),ny);
+    WA = v2m(ref(ny+1:end),3);
 
-    % Idea: Take the average growth of previous parametopes
-    WD = v2m(xk(7:3*3+7-1),3);
-    [~,WA] = ellipIntersectPoly(zeros(ny,1),QA,Cy,By);
+    % % Use Ridge Regression (Tikhonov Regression) if QA is close to singular
+    % Tikh_coef = 1e-2;
+    % QA = QA + Tikh_coef.*eye(ny);
+
+    % % Sometimes eigenvalue is negative because previous matrix is close to singular. Just switch sign for now
+    % [e_vecA,e_valA] = eig(QA);
+    % QA = e_vecA*(sign(e_valA).*e_valA)*e_vecA';
+
+    % [~,WA] = ellipIntersectPoly(zeros(ny,1),QA,Cy,By);
+
+    rotD = v2m(xk(7:3*3+7-1),3); % Extract Rotation Matrix of sys D
+    S = diag(scale(:,k));
+    WD = rotD*S*rotD'; % Apply scaling
+
     wD = xk(1:3);
     wA = ref(1:3);
 
-    KK = ctrl_gains(k);
+    KK = ctrl_gains(k,N);
     Qk = KK.Qd;
     Rk = KK.R.*eye(nu);
 
     % OR compute Kullback-Leibler Divergence
-    D_KL(k) = kullback_leibler_div(wD,WD,wA,WA)^2;
+    D_KL(k) = kullback_leibler_div(wD,WD,wA,WA);
+    %D_KL(k) = correlation_matrix_distance(wA,WA,wD,WD)^2;
     
     obj_u = obj_u + uk'*Rk*uk;
     unsObj_u = unsObj_u + uk'*uk; 
@@ -182,7 +252,10 @@ for k=1:N
     unsObj_d = unsObj_d + (wA-wD)'*(wA-wD);
 end
 Qm = KK.Qm;
-unsObj_DKL = LSE(-4,D_KL);
+LSE_coef = -0.1;
+%LSE_coef = -1;
+%LSE_coef = -20;
+unsObj_DKL = LSE(LSE_coef,D_KL);
 obj_DKL = Qm*unsObj_DKL;
 
 Obj.obj_d = obj_d;
