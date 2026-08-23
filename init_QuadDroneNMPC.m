@@ -178,19 +178,36 @@ vehiStruct.partDynFunc = @(y,u) quadDroneODE(y,u,I,M,niu_v,niu_w);
 vehiStruct.jacFunc = @(x,u) quadDrone_jac([x(1:nx);u],I,M,niu_v,niu_w);
 vehiStruct.trajFunc = @(t,pts) quadDrone_traj(t,pts,vehiStruct);
 vehiStruct.contrlFunc = @(x,ref) quadController(x,ref,vehiStruct);
-vehiStruct.bodyPlot = @() patch(Xvec+p0(1), Yvec+p0(2), Zvec+p0(3), [0 0 1]);
-vehiStruct.plotBodyFunc = @(x,patch) quadDrone_plotBody(x,patch,p_vec);
+vehiStruct.bodyPlot = @() initBodyPlot(Xvec,Yvec,Zvec,p0);
+vehiStruct.plotBodyFunc = @(x,bPlotSt) quadDrone_plotBody(x,bPlotSt,p_vec);
 end
 
-function p = quadDrone_plotBody(x,p,p_vec)
-p_vecnew = kron(eye(4),reshape(x(7:15),3,[]))*p_vec + [x(1:3); x(1:3); x(1:3); x(1:3)];
+function bodyPlotSt = initBodyPlot(Xvec,Yvec,Zvec,p0)
+bodyPlotSt.patch = patch(Xvec+p0(1), Yvec+p0(2), Zvec+p0(3), [0 0 1]);
+bodyPlotSt.quiver = quiver3(p0(1),p0(2),p0(3), 0,0,1, 'LineWidth',1,'Color','k');
+end
+
+function bodyPlotSt = quadDrone_plotBody(x,bodyPlotSt,p_vec)
+R = v2m(x(7:6+3^2),3); % Rotation Matrix
+p_vecnew = kron(eye(4),R)*p_vec + [x(1:3); x(1:3); x(1:3); x(1:3)];
 Xvec = [p_vecnew(1:3:12)];
 Yvec = [p_vecnew(2:3:12)];
 Zvec = [p_vecnew(3:3:12)];
 
-p.XData = Xvec;
-p.YData = Yvec;
-p.ZData = Zvec;
+% Update patch
+bodyPlotSt.patch.XData = Xvec;
+bodyPlotSt.patch.YData = Yvec;
+bodyPlotSt.patch.ZData = Zvec;
+
+% Update quiver
+bodyPlotSt.quiver.XData = x(1);
+bodyPlotSt.quiver.YData = x(2);
+bodyPlotSt.quiver.ZData = x(3);
+
+uvw = R*[0;0;1];
+bodyPlotSt.quiver.UData = uvw(1);
+bodyPlotSt.quiver.VData = uvw(2);
+bodyPlotSt.quiver.WData = uvw(3);
 
 end
 

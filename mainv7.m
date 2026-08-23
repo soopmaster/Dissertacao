@@ -40,8 +40,8 @@ prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
 enable_prmtp = 1;
-enable_disp = 0;
-make_vid = 0;
+enable_disp = 1;
+make_vid = 1;
 load_vehi_vec = 0;
 
 % === Init vehiStruct === &
@@ -187,7 +187,7 @@ hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
 if make_vid == 1
-    vid=VideoWriter('test_v6.mp4','MPEG-4');
+    vid=VideoWriter('test_v7.mp4','MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frame);
