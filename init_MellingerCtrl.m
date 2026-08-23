@@ -81,7 +81,7 @@ function [u, auxSt] = quadController(x0, xs, auxSt, pred_hor, tf, vehi)
     for ind=1:pred_hor
         tnxt = tnxt+Ts;
         [u(:,ind),rNxt] = trajNxtK(xpred(:,ind),W,tnxt,vehi,auxSt);
-        xpred(:,ind+1) = runge_kutta4(@(y) vehi.dynFunc(y,u(:,ind)), Ts, xpred(:,ind));
+        xpred(:,ind+1) = runge_kutta4(@(y) vehi.partDynFunc(y,u(:,ind)), Ts, xpred(:,ind));
         if ind==1
             auxSt.dr = rNxt{2}; auxSt.ddr = rNxt{3}; auxSt.dddr = rNxt{4};
             auxSt.t0 = tnxt;

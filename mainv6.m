@@ -35,10 +35,11 @@ pred_hor = 20;
 discnum = 5;
 disc_step = floor(pred_hor/discnum);
 disc_dt = disc_step*Ts; % Time step between Reachability discs
-prmtp_ind = disc_step:disc_step:pred_hor;
+prmtp_ind = [1,disc_step:disc_step:pred_hor];
+discnum = length(prmtp_ind);
 
 enable_prmtp = 1;
-enable_disp = 1;
+enable_disp = 0;
 make_vid = 0;
 load_vehi_vec = 0;
 
@@ -58,9 +59,10 @@ for ind=1:numVehi
 
     if ind == 1
         % === Define Critical Area === %
-        p1_ref = [0;0;0];
-        v1_ref = [-5;5;-5];
-        pts_ref = [p1_ref; v1_ref; vehi.vehiSt.x0(3*2+1:end)];
+        critp_ref = [0;0;0];
+        % critv_ref = [-5;5;-5];
+        critv_ref = [0;0;0];
+        pts_ref = [critp_ref; critv_ref; vehi.vehiSt.x0(3*2+1:end)];
         vehi.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,pred_hor)];
     else
         pts_ref = repmat(vehi_vec{1}.vehiSt.x0,1,pred_hor+1);
@@ -99,6 +101,8 @@ fig=figure('WindowState','maximized');
 hold on;
 grid on
 view(3)
+[title_3D,subtitle_3D] = title('Adversary Two Drone Sim', ...
+    't = 0 s','Interpreter','latex');
 xlabel('$x$','Interpreter','latex');
 ylabel('$y$','Interpreter','latex');
 zlabel('$z$','Interpreter','latex');
@@ -120,6 +124,8 @@ axis manual
 telapse_total = tic;
 k=1;
 while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=1 
+    % Update subtitle
+    subtitle_3D.String = ['t = ',num2str(k*Ts), 's'];
     disp(['=== Computing ', num2str(k), '/', num2str(knum), ' interval ===']);
     disp(['t = ', num2str((k-1)*Ts),'s']);
     telapse_k = tic;
@@ -134,15 +140,7 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=1
             % === Recalculate Trajectory (for Defender only) === %
             if kVehi~=1
                 %vehi.pts_ref(:,end) = vehi_vec{1}.x(:,k);
-                vehi.pts_ref{end+1} = vehi_vec{1}.xpred;
-            end
-
-            % === Update Plot === %
-            %vehi.trajPlot = plotTraj(vehi.xpred, vehi.trajPlot);
-            if enable_disp
-                vehi.prmtpPatch = plotParametope(vehi.ypred{end,1}(prmtp_ind),vehi.xpred{end,1}(nx+1:end,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
-                %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
-                %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
+                vehi.pts_ref{end+1,1} = vehi_vec{1}.xpred{end,1};
             end
 
         end
@@ -160,6 +158,15 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=1
         plotBodyFunc = vehiSt.plotBodyFunc; 
         vehi.bodyPlot = plotBodyFunc(vehi.x(:,k), vehi.bodyPlot);
         addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
+        if enable_disp
+            vehi.prmtpPatch = plotParametope(vehi.ypred{end,1}(prmtp_ind),vehi.xpred{end,1}(nx+1:end,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
+            %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
+            %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
+            if k==1
+                axis equal
+                axis manual
+            end
+        end
 
         vehi_vec{kVehi} = vehi;
         
@@ -301,6 +308,8 @@ alph_vec(:,1) = reshape(vehiSt.alph0,[],1);
 y = zeros(1,size(x,2));
 y(1) = vehiSt.ysim0;
 
+u_max = [vehiSt.vbds_init(nx+1,2); zeros(3,1)];
+
 for k=1:size(x,2)-1
     % === Propagate Parametope === %
     jacFunc = vehiSt.jacFunc;
@@ -312,7 +321,11 @@ for k=1:size(x,2)-1
     
     % Calculate maximum/minimum achievable value for x in next timestep
     xmin = runge_kutta4(@(y) vehiSt.partDynFunc(y,vehiSt.vbds_init(nx+1:end,1)),Ts,x(1:nx,k));
-    xmax = runge_kutta4(@(y) vehiSt.partDynFunc(y,vehiSt.vbds_init(nx+1:end,2)),Ts,x(1:nx,k));
+    %xmax = runge_kutta4(@(y) vehiSt.partDynFunc(y,vehiSt.vbds_init(nx+1:end,2)),Ts,x(1:nx,k)); % In case for near-perfect prediction accross the horizon (prediction uncertainties don't stack)
+    if k==1
+        xmax = x(1:nx,k);
+    end
+    xmax = runge_kutta4(@(y) vehiSt.partDynFunc(y,u_max),Ts,xmax); % (prediction uncertainties do stack)
     vbds_ext(:,1) = vehiSt.vbds_init(:,1) + [xmin; zeros(vehiSt.nu,1)];
     vbds_ext(:,2) = vehiSt.vbds_init(:,2) + [xmax; zeros(vehiSt.nu,1)];
 
@@ -323,12 +336,19 @@ for k=1:size(x,2)-1
     
     % Calculate c just once outside of runge-kutta
     % Propagate y with parametope method
-    % [prmtp_c_vec,parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfxo,alph_vec(:,k),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
+    [eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfxo,alph_vec(:,k),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
     % Propagate y with scaling method
-    ratio = xmax./x(1:nx,k);
-    parametope_c = max(ratio(1:3));
-    y(k+1) = runge_kutta4(@(yr) prmtpE(yr,parametope_c), Ts, y(k));
-    % y(k+1) = runge_kutta4(@(yr) 1/parametope_c, Ts, y(k));
+    % ratio = xmax./x(1:nx,k);
+    % parametope_c = max(ratio(1:3));
+    
+    if k>1
+        % parametope_c = (norm(xmax(1:3)-x(1:3,k))/sqrt(y(k-1)))^2;
+        parametope_c = (norm(xmax(1:3)-x(1:3,k))-sqrt(y(k-1)))/sqrt(y(k-1));
+        y(k) = runge_kutta4(@(yr) prmtpE(yr,parametope_c/Ts), Ts, y(k-1));
+        % y(k+1) = runge_kutta4(@(yr) 1/parametope_c, Ts, y(k));
+    else
+        y(k) = norm(xmax(1:3)-x(1:3,k))^2;
+    end
 
 end
 end
@@ -371,9 +391,12 @@ for ind=1:size(u,2)
     % Q = Q + Tikh_coef.*eye(nx);
 
     [~,W] = ellipIntersectPoly(zeros(nx,1),Q,C,B);
-    scale_factor(:,ind) = eig(W); % Compute axis scaling factors of ellipsoid (eigen values)
+    scale_factor(:,ind) = max(eig(W)); % Compute axis scaling factors of ellipsoid (eigen values)
 end
 % Pass predicted scaling factors to auxSt
+if ~isempty(vehi.ypred)
+    scale_factor = vehi.ypred{end,1};
+end
 auxSt.scale_factor = scale_factor;
 
 end

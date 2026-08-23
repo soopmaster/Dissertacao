@@ -109,12 +109,12 @@ end
 function [u, auxSt] = NMPC_prmtp(x0,xs,auxSt,solver,args,N,nx,nu,ny)
 u0 = auxSt.u0;
 X0 = auxSt.X0;
-scale = auxSt.scale_factor;
+scale_coef = auxSt.scale_factor;
 paramWA = xs(1:(ny+3^2),:);
 
-Cy = eye(ny);
-Cy = Cy(:,4:end);
-By = zeros(size(Cy,2),1);
+% Cy = eye(ny);
+% Cy = Cy(:,4:end);
+% By = zeros(size(Cy,2),1);
 
 % Condition input data! and 
 % scale entries should be positive. 
@@ -122,20 +122,22 @@ By = zeros(size(Cy,2),1);
 tol = 1.5e-15;
 Tikh_coef = 1e-5;
 for k=1:size(xs,2)
-    scale(:,k) = 0.5.*[0.1;0.1;1];
-    if any(scale(:,k)<=0)
-        scale(:,k) = scale(:,k) + (-min(scale(:,k)) + Tikh_coef).*ones(size(scale(:,k)));
-    end
+    scale(:,k) = scale_coef(k).*[1;1;0.1];
+    % if any(scale(:,k)<=0)
+    %     scale(:,k) = scale(:,k) + (-min(scale(:,k)) + Tikh_coef).*ones(size(scale(:,k)));
+    % end
 
     alphA = v2m(xs(ny+1:end,k),ny);
 
+    qA = xs(1:ny,k);
     QA = alphA'*alphA;
-    [~,WA] = ellipIntersectPoly(zeros(ny,1),QA,Cy,By);
+    %[~,WA] = ellipIntersectPoly(zeros(ny,1),QA,Cy,By);
+    [wA,WA] = ellip2R3(qA,QA);
 
     % [evecA,evalA] = eig(QA);
     [evecA,evalA] = eig(WA);
     evalA1 = diag(evalA);
-    if 1
+    if 0
         % any(evalA1<=0)
         %evalAnew = evalA1 + (-min(evalA1) + Tikh_coef).*ones(size(evalA1));
         evalAnew = 0.5.*[0.1;0.1;1];
@@ -176,14 +178,14 @@ end
 
 function KK = ctrl_gains(k,N)
 % Return control gains at k prediction horizon step
-K0 = 1; % Start gain
-KN = 150; % End Gain
+K0 = 10; % Start gain
+KN = 20; % End Gain
 steep = 2; % Steepness of exponential
 
 %Qd = exp(steep*(-k+log(K0-KN)/steep)) + KN; % Starts big, goes down
 Qd = exp(steep*(k-N+log(KN-K0)/steep)) + K0; % starts small, goes up
 R = 0.01;
-Qm = 2;
+Qm = 10; % Shape Matrix weight
 
 KK.Qd = Qd; KK.R = R; KK.Qm = Qm;
 end
@@ -209,27 +211,7 @@ for k=1:N
     uk = U(:,k);
 
     % 1) Intersect Rn ellipsoids with R3 hyperplane to get R3 ellipsoids
-    Cx = eye(nx);
-    Cx = Cx(:,4:end);
-    Bx = zeros(size(Cx,2),1);
-    % Cy = eye(ny);
-    % Cy = Cy(:,4:end);
-    % By = zeros(size(Cy,2),1);
-
-    %alphA = v2m(ref(ny+1:end),ny);
-    %QA = alphA'*alphA;
-    % QA = v2m(ref(ny+1:end),ny);
     WA = v2m(ref(ny+1:end),3);
-
-    % % Use Ridge Regression (Tikhonov Regression) if QA is close to singular
-    % Tikh_coef = 1e-2;
-    % QA = QA + Tikh_coef.*eye(ny);
-
-    % % Sometimes eigenvalue is negative because previous matrix is close to singular. Just switch sign for now
-    % [e_vecA,e_valA] = eig(QA);
-    % QA = e_vecA*(sign(e_valA).*e_valA)*e_vecA';
-
-    % [~,WA] = ellipIntersectPoly(zeros(ny,1),QA,Cy,By);
 
     rotD = v2m(xk(7:3*3+7-1),3); % Extract Rotation Matrix of sys D
     S = diag(scale(:,k));
@@ -252,7 +234,8 @@ for k=1:N
     unsObj_d = unsObj_d + (wA-wD)'*(wA-wD);
 end
 Qm = KK.Qm;
-LSE_coef = -0.1;
+LSE_coef = -4;
+%LSE_coef = -0.1;
 %LSE_coef = -1;
 %LSE_coef = -20;
 unsObj_DKL = LSE(LSE_coef,D_KL);

@@ -32,14 +32,15 @@ knum = simT/Ts;
 calc_traj_dt = Ts;
 recalc_step = calc_traj_dt/Ts;
 pred_hor = 20;
-discnum = 5;
+discnum = 5; % It will actually be discnum+1
 disc_step = floor(pred_hor/discnum);
 disc_dt = disc_step*Ts; % Time step between Reachability discs
-prmtp_ind = disc_step:disc_step:pred_hor;
+prmtp_ind = [1,disc_step:disc_step:pred_hor];
+discnum = length(prmtp_ind);
 
 enable_monteCarlo = 1;
-enable_disp = 0;
-make_vid = 0;
+enable_disp = 1;
+make_vid = 1;
 
 % === Init vehiStruct === &
 vehi_vec = init_all_vehi_local(Ts,pred_hor); % Cell vec with vehiSimStruct
@@ -54,7 +55,8 @@ for ind=1:numVehi
     if ind == 1
         % === Define Critical Area === %
         critp_ref = [0;0;0];
-        critv_ref = [-5;5;-5];
+        % critv_ref = [-5;5;-5];
+        critv_ref = [0;0;0];
         pts_ref = [critp_ref; critv_ref; vehi.vehiSt.x0(3*2+1:end)];
         vehi.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,pred_hor)];
     else
@@ -64,7 +66,7 @@ for ind=1:numVehi
     end
 
     % === Init Simulation Vectors === %
-    vehi.x = zeros(nx_full,knum);
+    vehi.x = zeros(nx,knum);
     vehi.x(:,1) = vehi.vehiSt.x0;
     vehi.u = zeros(vehi.vehiSt.nu,knum);
     vehi.u(:,1) = vehi.vehiSt.u0;
@@ -74,8 +76,7 @@ for ind=1:numVehi
     % 
     vehi.xpred = cell(0,0);
     vehi.upred = cell(0,0);
-    vehi.ypred = cell(0,0);
-
+    
     vehi.error_track = [];
 
     % Define window bounds
@@ -94,19 +95,22 @@ fig=figure('WindowState','maximized');
 hold on;
 grid on
 view(3)
+[title_3D,subtitle_3D] = title('Parametope Validation Sim (Monte-Carlo)', ...
+    'k = 0','Interpreter','latex');
 xlabel('$x$','Interpreter','latex');
 ylabel('$y$','Interpreter','latex');
 zlabel('$z$','Interpreter','latex');
 for ind=1:numVehi
     pts_ref = vehi_vec{ind}.pts_ref{1};
     vehi_vec{ind}.prmtpPatch = {};
+    vehi_vec{ind}.monteCarloPlot = {};
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
     %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
-    vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
+    %vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
 axis equal
-axis manual
+%axis manual
 % ac = get(ax3D, 'Children');   %no hidden objects
 % copyobj( ac, axTop );
 % copyobj( ac, axSide );
@@ -114,7 +118,9 @@ axis manual
 % === Simulation === %
 telapse_total = tic;
 k=1;
-while k<knum && norm(vehi_vec{1}.x(1:3,k)-critp_ref)>=1
+while k<knum && norm(vehi_vec{1}.x(1:3,k)-critp_ref)>=0.1
+    % Update subtitle
+    subtitle_3D.String = ['k = ',num2str(k)];
     disp(['=== Computing ', num2str(k), '/', num2str(knum), ' interval ===']);
     disp(['t = ', num2str((k-1)*Ts),'s']);
     telapse_k = tic;
@@ -127,26 +133,35 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-critp_ref)>=1
 
         % === Real-Time === %
         % Add disturbances!
-        [vehi.xpred{end+1,1}, vehi.upred{end+1,1}, vehi.ctrlSt.auxSt] = calcNxt(vehi.x(:,k), vehi.pts_ref{end,1}(:,2:end), vehi, Ts, pred_hor);
-        vehi.x(:,k+1) = vehi.xpred{end,1}(:,2);
+        [vehi.xpred{end+1,1}, vehi.upred{end+1,1}, vehi.ctrlSt.auxSt] = calcNxt(vehi.x(:,k), vehi.pts_ref{end,1}, vehi, Ts, pred_hor);
+        vehi.x(:,k+1) = vehi.xpred{end,1}(1:nx,2);
         vehi.u(:,k) = vehi.upred{end,1}(:,1);
         vehi.error_track(:,k) = vehi.ctrlSt.auxSt.error_track;
 
-        [alph_vec, vehi.ypred{end+1,1}] = calcParametopes(vehi.xpred{end,1}, vehi.upred{end,1}, vehi, Ts);
+        %[alph_vec, vehi.ypred{end+1,1}] = calcParametopes(vehi.xpred{end,1}, vehi.upred{end,1}, vehi, Ts);
 
         if enable_monteCarlo
             % [xVal] = prmtpMonteCarloVal_surf(vehi.xpred{end,1}(1:nx,:),alph_vec,vehi.ypred{end,1},10,Ts,vehiSt);
-            [x_branch,x_leaf] = prmtpMonteCarloVal_tree(vehi.xpred{end,1}(1:nx,:),alph_vec,vehi.ypred{end,1},1,Ts,vehiSt);
+            [x_branch,x_leaf] = prmtpMonteCarloVal_tree(vehi.xpred{end,1}(1:nx,:),vehi.xpred{end,1}(nx+(1:nx^2),:),vehi.xpred{end,1}(end,:),1,Ts,vehiSt);
         end
 
         % === Update Plot === %
         plotBodyFunc = vehiSt.plotBodyFunc; 
         vehi.bodyPlot = plotBodyFunc(vehi.x(:,k), vehi.bodyPlot);
-        addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
+        %addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
         if enable_disp
-            vehi.prmtpPatch = plotParametope(vehi.ypred{end,1}(prmtp_ind),vehi.xpred{end,1}(nx+1:end,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
-            %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
+            vehi.prmtpPatch = plotParametope(vehi.xpred{end,1}(end,prmtp_ind),vehi.xpred{end,1}(nx+1:end-1,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
+            if enable_monteCarlo
+                %x_leaf_ind = x_leaf(prmtp_ind,1);
+                x_leaf_ind = x_leaf;
+                vehi.monteCarloPlot = plotMonteCarlo(x_branch,prmtp_ind,vehi.monteCarloPlot);
+            end
+                %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
             %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
+            if k==0
+                axis equal
+                axis manual
+            end
         end
 
         vehi_vec{kVehi} = vehi;
@@ -167,7 +182,7 @@ hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
 if make_vid == 1
-    vid=VideoWriter('test_v6.mp4','MPEG-4');
+    vid=VideoWriter('test_monteCarlo.mp4','MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frame);
@@ -202,6 +217,40 @@ end
 
 %save prmtpV5_data.mat vehi_vec % Save sim results (probably can't support casadi solver)
 
+function vehi_vec = init_all_vehi_local(Ts,pred_hor)
+%INIT_ALL_VEHI outputs cell vector of vehiStruct
+%   Detailed explanation goes here
+
+vehi_vec = cell(1,1);
+
+% Define Inital Positions
+p10 = [2;-2;2];
+x0 = {p10};
+
+vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);
+
+vehi_vec{1}.ctrlSt = init_MellingerCtrl(pred_hor,2,vehi_vec{1}.vehiSt);
+
+% === Define ops === %
+ops = sdpsettings('verbose',0);
+ops.plot.shade = 0.15;
+ops.plot.linewidth=0.05;
+ops.plot.wirestyle=':';
+ops.plot.edgecolor='#EB4B2D';
+%ops.plot.edgecolor=[235 75 45];
+vehi_vec{1}.ops = ops;
+
+% === Init Plot Obs === %
+L = 0.5;
+p_NB = [L;0;0];
+p_SB = [-L;0;0];
+p_EB = [0;L;0];
+p_OB = [0;-L;0];
+p_vec = [p_NB; p_EB; p_SB; p_OB];
+vehi_vec{1}.p_vec = p_vec;
+
+end
+
 function [x_branch,x_leaf] = prmtpMonteCarloVal_tree(x_vec,alph_vec,y_vec,N,Ts,vehiSt)
 % N : number of random inputs to propagate per tau cube face
 % Monte-Carlo starts here
@@ -210,8 +259,10 @@ function [x_branch,x_leaf] = prmtpMonteCarloVal_tree(x_vec,alph_vec,y_vec,N,Ts,v
 nx = vehiSt.nx;
 num_in = 3; % Number of inputs combinations to validate
 xVal = {};
+x_leaf = {};
 
 F_max = vehiSt.vbds_init(end-4+1,2);
+F_min = vehiSt.vbds_init(end-4+1,1);
 tau_min = vehiSt.vbds_init(end-3+1:end,1);
 tau_max = vehiSt.vbds_init(end-3+1:end,2);
 
@@ -222,13 +273,20 @@ uz = linspace(tau_min(3),tau_max(3),num_in);
 
 columize = @(A)reshape(permute(A, [3,2,1]), [],1,1);
 tauU = [columize(uX), columize(uY), columize(uZ)]';
-%tauU = [v2m(uX'), v2m(uY'), v2m(uZ')]';
-U_branch = [F_max.*ones(1,size(tauU,2)); tauU];
+% Find the column where all values are 0 and remove it
+tauUnorm = zeros(1,size(tauU,2));
+for k=1:size(tauU,2)
+    tauUnorm(k) = norm(tauU(:,k));
+end
+tauU = tauU(:,(tauUnorm>0));
+U_branch_max = [F_max.*ones(1,size(tauU,2)); tauU];
+U_branch_min = [F_min.*ones(1,size(tauU,2)); tauU];
+U_branch = [U_branch_min, U_branch_max];
 
 x_branch = cell(hor,1);
 x_branch{1,1} = repmat(x_vec(1:nx,1),1,size(U_branch,2));
-x_leaf = cell(hor,1);
-x_leaf{1,1} = repmat(x_vec(1:nx,1),1,N*6*size(U_branch,2));
+% x_leaf = cell(hor,1);
+% x_leaf{1,1} = repmat(x_vec(1:nx,1),1,N*6*size(U_branch,2));
 
 for k=1:hor-1
     alph = v2m(alph_vec(:,k),nx);
@@ -239,23 +297,25 @@ for k=1:hor-1
     for k_br=1:size(U_branch,2)
         % 1. Compute points once with randomly selected boundary inputs (leaf)
         % For every face of tau cube, select random value between bounds
-        a = tau_min;
-        b = tau_max;
-        tau_curr = a + (b-a).*rand(3,N*6);
-        for k_cb=1:3
-            % This only works when N=1 for now! Fix
-            tau_curr(k_cb,k_cb*2-1) = repmat(tau_min(1),1,N);
-            tau_curr(k_cb,k_cb*2) = repmat(tau_max(1),1,N);
-        end
-        U_leaf = [F_max.*ones(1,N*6); tau_curr];
-        for k_lf=1:N*6
-    
-            x_leaf{k+1,1}(:,end+1) = runge_kutta4(@(y) vehiSt.partDynFunc(y,U_leaf(:,k_lf)), Ts, x_branch{k,1}(:,k_br));
-            
-        end
+        % a = tau_min;
+        % b = tau_max;
+        % tau_curr = a + (b-a).*rand(3,N*6);
+        % for k_cb=1:3
+        %     % This only works when N=1 for now! Fix
+        %     tau_curr(k_cb,k_cb*2-1) = repmat(tau_min(1),1,N);
+        %     tau_curr(k_cb,k_cb*2) = repmat(tau_max(1),1,N);
+        % end
+        % U_leaf_max = [F_max.*ones(1,N*6); tau_curr];
+        % U_leaf_min = [F_min.*ones(1,N*6); tau_curr];
+        % U_leaf = [U_leaf_min, U_leaf_max];
+        % for k_lf=1:size(U_leaf,2)
+        % 
+        %     x_leaf{k+1,1}(:,end+1) = runge_kutta4(@(y) vehiSt.partDynFunc(y,U_leaf(:,k_lf)), Ts, x_branch{k,1}(:,k_br));
+        % end
         % 2. Propagate corners of input cube (branch)
         x_branch{k+1,1}(:,k_br) = runge_kutta4(@(y) vehiSt.partDynFunc(y,U_branch(:,k_br)), Ts, x_branch{k,1}(:,k_br));
     end
+    % Cell index in x__ is samples at time k
 
     % 3. Calculate error to surface of next ellipsoid
     %xVal{end+1,1} = xNxt;
@@ -311,67 +371,6 @@ end
 
 end
 
-function vehi_vec = init_all_vehi_local(Ts,pred_hor)
-%INIT_ALL_VEHI outputs cell vector of vehiStruct
-%   Detailed explanation goes here
-
-vehi_vec = cell(1,1);
-
-% Define Inital Positions
-p10 = [5;-5;6];
-% p20 = [-5;5;0];
-p20 = [-1;1;1];
-x0 = {p10, p20};
-
-vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);
-%vehi_vec{2}.vehiSt = init_QuadDroneNMPC(x0{2},Ts);
-%vehi_vec{2}.vehiSt = init_doubleInteg3D(x0{2},Ts);
-
-% vehi_vec{1}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{1}.vehiSt);
-
-vehi_vec{1}.ctrlSt = init_MellingerCtrl(pred_hor,2,vehi_vec{1}.vehiSt);
-%vehi_vec{2}.ctrlSt = init_NMPCctrl_v2(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
-%vehi_vec{2}.ctrlSt = init_NMPCctrl_v3(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
-%vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
-%vehi_vec{2}.ctrlSt = init_MellingerCtrl_v2(pred_hor,Ts,vehi_vec{2}.vehiSt);
-%vehi_vec{2}.ctrlSt = init_MellingerCtrl(4,vehi_vec{2}.vehiSt);
-
-% === Define ops === %
-ops = sdpsettings('verbose',0);
-ops.plot.shade = 0.15;
-ops.plot.linewidth=0.05;
-ops.plot.wirestyle=':';
-ops.plot.edgecolor='#EB4B2D';
-%ops.plot.edgecolor=[235 75 45];
-vehi_vec{1}.ops = ops;
-
-% ops = sdpsettings('verbose',0);
-% ops.plot.shade = 0.15;
-% ops.plot.linewidth=0.05;
-% ops.plot.wirestyle=':';
-% ops.plot.edgecolor='#11F4BF';
-% %ops.plot.edgecolor=[17 244 191];
-% vehi_vec{2}.ops = ops;
-
-% === Init Plot Obs === %
-L = 0.5;
-p_NB = [L;0;0];
-p_SB = [-L;0;0];
-p_EB = [0;L;0];
-p_OB = [0;-L;0];
-p_vec = [p_NB; p_EB; p_SB; p_OB];
-vehi_vec{1}.p_vec = p_vec;
-
-% L = 0.5;
-% p_NB = [L;0;0];
-% p_SB = [-L;0;0];
-% p_EB = [0;L;0];
-% p_OB = [0;-L;0];
-% p_vec = [p_NB; p_EB; p_SB; p_OB];
-% vehi_vec{2}.p_vec = p_vec;
-
-end
-
 function traj_new = calcTraj(xstart,xend,kcurr,Ts,knum,vehi)
 vehiSt = vehi.vehiSt;
 % Update trajt and pts_ref
@@ -398,6 +397,11 @@ alph_vec(:,1) = reshape(vehiSt.alph0,[],1);
 y = zeros(1,size(x,2));
 y(1) = vehiSt.ysim0;
 
+%parametope_c = zeros(1,size(x,2));
+
+% u_max = [vehiSt.vbds_init(nx+1,2); zeros(3,1)];
+u_max = vehiSt.vbds_init(nx+1:end,2);
+
 for k=1:size(x,2)-1
     % === Propagate Parametope === %
     jacFunc = vehiSt.jacFunc;
@@ -409,7 +413,11 @@ for k=1:size(x,2)-1
     
     % Calculate maximum/minimum achievable value for x in next timestep
     xmin = runge_kutta4(@(y) vehiSt.partDynFunc(y,vehiSt.vbds_init(nx+1:end,1)),Ts,x(1:nx,k));
-    xmax = runge_kutta4(@(y) vehiSt.partDynFunc(y,vehiSt.vbds_init(nx+1:end,2)),Ts,x(1:nx,k));
+    %xmax = runge_kutta4(@(y) vehiSt.partDynFunc(y,vehiSt.vbds_init(nx+1:end,2)),Ts,x(1:nx,k)); % In case for near-perfect prediction accross the horizon (prediction uncertainties don't stack)
+    if k==1
+        xmax = x(1:nx,k);
+    end
+    xmax = runge_kutta4(@(y) vehiSt.partDynFunc(y,u_max),Ts,xmax); % (prediction uncertainties do stack)
     vbds_ext(:,1) = vehiSt.vbds_init(:,1) + [xmin; zeros(vehiSt.nu,1)];
     vbds_ext(:,2) = vehiSt.vbds_init(:,2) + [xmax; zeros(vehiSt.nu,1)];
 
@@ -420,12 +428,19 @@ for k=1:size(x,2)-1
     
     % Calculate c just once outside of runge-kutta
     % Propagate y with parametope method
-    % [prmtp_c_vec,parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfxo,alph_vec(:,k),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
+    [eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfxo,alph_vec(:,k),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
     % Propagate y with scaling method
-    ratio = xmax./x(1:nx,k);
-    parametope_c = max(ratio(1:3));
-    y(k+1) = runge_kutta4(@(yr) prmtpE(yr,parametope_c), Ts, y(k));
-    % y(k+1) = runge_kutta4(@(yr) 1/parametope_c, Ts, y(k));
+    % ratio = xmax./x(1:nx,k);
+    % parametope_c = max(ratio(1:3));
+    
+    if k>1
+        % parametope_c = (norm(xmax(1:3)-x(1:3,k))/sqrt(y(k-1)))^2;
+        parametope_c = (norm(xmax(1:3)-x(1:3,k))-sqrt(y(k-1)))/sqrt(y(k-1));
+        y(k) = runge_kutta4(@(yr) prmtpE(yr,parametope_c/Ts), Ts, y(k-1));
+        % y(k+1) = runge_kutta4(@(yr) 1/parametope_c, Ts, y(k));
+    else
+        y(k) = norm(xmax(1:3)-x(1:3,k))^2;
+    end
 
 end
 end
@@ -440,38 +455,60 @@ auxSt = ctrlSt.auxSt;
 nx = vehiSt.nx;
 
 % Compute predictions whether controller returns horizon of u values or not
-dynFunc = vehiSt.dynFunc;
-xpred = zeros(length(xk),pred_hor);
-xpred(:,1) = xk;
-xpred(nx+1:end,1) = m2v(vehiSt.alph0);
+
+states = zeros(nx,pred_hor);
+states(:,1) = xk(1:nx);
+
+alphs = zeros(nx^2,pred_hor);
+alphs(:,1) = m2v(vehiSt.alph0);
+
+ys = zeros(1,pred_hor);
+ys(1) = vehiSt.ysim0;
+
+u_max = [vehiSt.vbds_init(nx+1,2); zeros(3,1)];
 
 % === Calculate Control action === %
-[u,auxSt] = ctrlSt.ctrlFunc(xpred(:,1), xd, auxSt);
+[u,auxSt] = ctrlSt.ctrlFunc(xk(:,1), xd, auxSt);
 
 % === Calculate System === %
 for ind=1:size(u,2)
-    xpred(:,ind+1) = runge_kutta4(@(y) dynFunc(y,u(:,ind)), Ts, xpred(:,ind));
+    % Propagate States
+    states(:,ind+1) = runge_kutta4(@(y) vehiSt.partDynFunc(y,u(:,ind)), Ts, states(:,ind));
 
-    alph = v2m(xpred(nx+1:end,ind),nx);
-    % Q = vehiSt.ysim0.*alph'*alph;
-    Q = alph'*alph;
-    C = eye(nx);
-    C = C(:,4:end);
-    B = zeros(size(C,2),1);
+    % Propagate alph
+    Dfx0 = vehiSt.jacFunc(states(:,ind),u(:,ind));
+    alphk_1 = runge_kutta4(@(y) prmtpU(y,-Dfx0),Ts,v2m(alphs(:,ind),nx));
+    alphs(:,ind+1) = m2v(alphk_1);
 
-    % % Sometimes eigenvalue is negative because previous matrix is close to singular. Just switch sign for now
-    % [e_vec,e_val] = eig(Q);
-    % Q = e_vec*(sign(e_val).*e_val)*e_vec';
+    % Propagate y
+    % Calculate maximum/minimum achievable value for x in next timestep
+    xmin = runge_kutta4(@(y) vehiSt.partDynFunc(y,vehiSt.vbds_init(end-3:end,1)),Ts,states(:,ind));
+    %xmax = runge_kutta4(@(y) vehiSt.partDynFunc(y,vehiSt.vbds_init(nx+1:end,2)),Ts,x(1:nx,k)); % In case for near-perfect prediction accross the horizon (prediction uncertainties don't stack)
+    if ind==1
+        xmax = states(1:nx,ind);
+    end
+    xmax = runge_kutta4(@(y) vehiSt.partDynFunc(y,u_max),Ts,xmax); % (prediction uncertainties do stack)
+    vbds_ext(:,1) = vehiSt.vbds_init(:,1) + [xmin; zeros(vehiSt.nu,1)];
+    vbds_ext(:,2) = vehiSt.vbds_init(:,2) + [xmax; zeros(vehiSt.nu,1)];
 
-    % % Use Ridge Regression (Tikhonov Regression) if Q is close to singular
-    % Tikh_coef = 1e-2;
-    % Q = Q + Tikh_coef.*eye(nx);
-
-    [~,W] = ellipIntersectPoly(zeros(nx,1),Q,C,B);
-    scale_factor(:,ind) = eig(W); % Compute axis scaling factors of ellipsoid (eigen values)
+    % Calculate c just once outside of runge-kutta
+    % Propagate y with parametope method
+    [eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfx0,alphs(:,ind),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
+    % Propagate y with scaling method
+    % ratio = xmax./x(1:nx,k);
+    % parametope_c = max(ratio(1:3));
+    
+    if ind>1
+        % parametope_c = (norm(xmax(1:3)-x(1:3,k))/sqrt(y(k-1)))^2;
+        parametope_c = (norm(xmax(1:3)-states(1:3,ind))-sqrt(ys(ind-1)))/sqrt(ys(ind-1));
+        ys(ind) = runge_kutta4(@(yr) prmtpE(yr,parametope_c/Ts), Ts, ys(ind-1));
+        % y(k+1) = runge_kutta4(@(yr) 1/parametope_c, Ts, y(k));
+    else
+        ys(ind) = norm(xmax(1:3)-states(1:3,ind))^2;
+    end
 end
-% Pass predicted scaling factors to auxSt
-auxSt.scale_factor = scale_factor;
+xpred = [states(:,1:end-1); alphs(:,1:end-1); ys];
+auxSt.ys = ys;
 
 end
 
@@ -503,6 +540,71 @@ function traj = plotTraj(x, traj)
     traj.XData = x(1,:);
     traj.YData = x(2,:);
     traj.ZData = x(3,:);
+end
+
+function MCplot = plotMonteCarlo(x_branch,prmtp_ind,MCplot_old)
+% MCplot has two components: The branch plots, which will be 26 lines, and
+% the leaf plots which will be N scatter plots (N is number of plotted
+% ellipsoids)
+
+% x_branch{1} : contains all branch samples at k=1
+% x_leaf{1} : contains all leaf samples at k=1
+
+nx = size(x_branch{1},1);
+
+knum_branch = size(x_branch,1);
+%knum_leaf = size(x_leaf,1);
+num_branch = size(x_branch{1},2);
+%num_leaf = size(x_leaf{1},2);
+
+% Reshape x_branch so that each cell contains all samples of a branch instead
+x_branchaux = cell(num_branch,1);
+for k_br=1:num_branch
+    x_branchaux{k_br,1} = zeros(nx,knum_branch);
+    for k_t=1:knum_branch
+        x_branchaux{k_br,1}(:,k_t) = x_branch{k_t,1}(:,k_br);
+    end
+end
+x_branch = x_branchaux;
+
+% create a default color map ranging from red to light pink
+color_start = [1, 0, 0];
+color_end = [255, 192, 203]/255;
+
+if isempty(MCplot_old)
+    MCplot.monteCarloPlot = struct;
+    MCplot.monteCarloPlot.branch = cell(num_branch,1);
+    %MCplot.monteCarloPlot.leaf = cell(knum_leaf,1);
+    % Create MonteCarlo branch plots
+    colorMapLength = knum_branch;
+    colors_p = [linspace(color_start(1),color_end(1),colorMapLength)', linspace(color_start(2),color_end(2),colorMapLength)', linspace(color_start(3),color_end(3),colorMapLength)'];
+    for k_br=1:num_branch
+        MCplot.monteCarloPlot.branch{k_br,1} = plot3(zeros(1,knum_branch), zeros(1,knum_branch), zeros(1,knum_branch),'LineWidth',0.05, 'Color',[21,155,81]/255,'LineStyle','-', ...
+            'Marker','*','MarkerIndices',prmtp_ind+1,'MarkerSize',0.1,'MarkerEdgeColor','r','DisplayName','');
+    end
+    % % Create MonteCarlo leaf plots
+    % colorMapLength = knum_leaf;
+    % colors_p = [linspace(color_start(1),color_end(1),colorMapLength)', linspace(color_start(2),color_end(2),colorMapLength)', linspace(color_start(3),color_end(3),colorMapLength)'];
+    % for k=1:knum_leaf
+    %     MCplot.monteCarloPlot.leaf{k,1} = plot3(zeros(1,num_leaf), zeros(1,num_leaf), zeros(1,num_leaf),'LineWidth',0.05, 'Color','r','LineStyle','none','Marker','*','DisplayName','');
+    % end
+else
+    MCplot = MCplot_old;
+end
+
+% Update branch plots
+for k=1:num_branch
+    MCplot.monteCarloPlot.branch{k,1}.XData = x_branch{k,1}(1,:);
+    MCplot.monteCarloPlot.branch{k,1}.YData = x_branch{k,1}(2,:);
+    MCplot.monteCarloPlot.branch{k,1}.ZData = x_branch{k,1}(3,:);
+end
+% % Update leaf plots
+% for k=1:knum_leaf
+%     MCplot.monteCarloPlot.leaf{k,1}.XData = x_leaf{k,1}(1,:);
+%     MCplot.monteCarloPlot.leaf{k,1}.YData = x_leaf{k,1}(2,:);
+%     MCplot.monteCarloPlot.leaf{k,1}.ZData = x_leaf{k,1}(3,:);
+% end
+
 end
 
 function p_vec = plotParametope(y,alph_vec,x,nx,ops,patch_vec)

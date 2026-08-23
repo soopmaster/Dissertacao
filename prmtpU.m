@@ -1,4 +1,4 @@
-function dalph = prmtpU(alph,Dfxo,dim)
+function dalph = prmtpU(alph,Dfxo)
     % Variables for ODE: x = alph(:,k) (vectorised)
     %   U(xo,alph,y) = -alph*Df(xo)
 
