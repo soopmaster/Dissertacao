@@ -38,9 +38,10 @@ disc_dt = disc_step*Ts; % Time step between Reachability discs
 prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
-enable_monteCarlo = 1;
-enable_disp = 0;
-make_vid = 0;
+enable_monteCarlo = 0;
+enable_shadow = 1;
+enable_disp = 1;
+make_vid = 1;
 
 % === Init vehiStruct === &
 vehi_vec = init_all_vehi_local(Ts,pred_hor); % Cell vec with vehiSimStruct
@@ -84,7 +85,9 @@ for ind=1:numVehi
     vehi_vec{ind} = vehi;
 end
 
-%vehiPred = vehi_vec{1}; % Auxilliary vehi for prediction
+vehiAux = vehi_vec{1}; % Auxilliary vehi without plots for last prediction
+vehiAux.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,knum)];
+vehiAux.ops.plot.edgecolor = 'r'; vehiAux.ops.plot.wirestyle = '-'; vehiAux.ops.plot.linewidth = 0.5;
 
 % MSE vec for parametope. Columns are pred step, Rows sim step
 MSE = zeros(pred_hor-1,0); 
@@ -112,6 +115,8 @@ for ind=1:numVehi
     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
     %vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
+vehiAux.prmtpShadow = {}; % Parametope Shadow patch
+
 axis equal
 %axis manual
 % ac = get(ax3D, 'Children');   %no hidden objects
@@ -137,10 +142,32 @@ while k<knum && 1
 
         % === Real-Time === %
         % Add disturbances!
-        [vehi.xpred{end+1,1}, vehi.upred{end+1,1}, vehi.ctrlSt.auxSt] = calcNxt(vehi.x(:,k), vehi.pts_ref{end,1}, vehi, Ts, pred_hor);
+        [xpred_aux, upred_aux, auxStaux] = calcNxt(vehi.x(:,k), vehi.pts_ref{end,1}, vehi, Ts, pred_hor);
+        vehi.xpred{end+1,1} = xpred_aux(:,1:pred_hor);
+        vehi.upred{end+1,1} = upred_aux(:,1:pred_hor);
+        vehi.ctrlSt.auxSt = auxStaux;
+
         vehi.x(:,k+1) = vehi.xpred{end,1}(1:nx,2);
         vehi.u(:,k) = vehi.upred{end,1}(:,1);
         vehi.error_track(:,k) = vehi.ctrlSt.auxSt.error_track;
+
+        if enable_shadow
+        % Compute Final parametope
+            [xpred_aux, upred_aux, auxStaux] = calcNxt(vehiAux.x(:,k), vehiAux.pts_ref{end,1}, vehiAux, Ts, knum);
+            vehiAux.xpred{end+1,1} = xpred_aux(:,1:knum);
+            vehiAux.upred{end+1,1} = upred_aux(:,1:knum);
+            vehiAux.ctrlSt.auxSt = auxStaux;
+    
+            % Find prediction closest to critp
+            error = vehiAux.xpred{end,1}(1:3,:)-critp_ref;
+            %[min_dist, min_ind] = min(sum(error.^2,1).^(1/2));
+            [~,col] = find(sum(error.^2,1).^(1/2) <= 5e-1);
+            min_ind = col(1);
+    
+            vehiAux.x(:,k+1) = vehiAux.xpred{end,1}(1:nx,2);
+            vehiAux.u(:,k) = vehiAux.upred{end,1}(:,1);
+            vehiAux.error_track(:,k) = vehiAux.ctrlSt.auxSt.error_track;
+        end
 
         %[alph_vec, vehi.ypred{end+1,1}] = calcParametopes(vehi.xpred{end,1}, vehi.upred{end,1}, vehi, Ts);
 
@@ -153,8 +180,11 @@ while k<knum && 1
         plotBodyFunc = vehiSt.plotBodyFunc; 
         vehi.bodyPlot = plotBodyFunc(vehi.x(:,k), vehi.bodyPlot);
         %addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
+        if enable_shadow
+                vehiAux.prmtpShadow = plotParametope(vehiAux.xpred{end,1}(end,min_ind),vehiAux.xpred{end,1}(nx+1:end-1,min_ind),vehiAux.xpred{end,1}(1:nx,min_ind),nx,vehiAux.ops,vehiAux.prmtpShadow,2);
+        end
         if enable_disp
-            vehi.prmtpPatch = plotParametope(vehi.xpred{end,1}(end,prmtp_ind),vehi.xpred{end,1}(nx+1:end-1,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
+            vehi.prmtpPatch = plotParametope(vehi.xpred{end,1}(end,prmtp_ind),vehi.xpred{end,1}(nx+1:end-1,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch,3);
             if enable_monteCarlo
                 %x_leaf_ind = x_leaf(prmtp_ind,1);
                 %x_leaf_ind = x_leaf;
@@ -186,25 +216,27 @@ hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
 if make_vid == 1
-    vid=VideoWriter('test_monteCarlo.mp4','MPEG-4');
+    vid=VideoWriter('test_monteCarloShadow.mp4','MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frame);
     close(vid);
 end
 
-% Plot MSE 
-figure;
-[title_MSE,subtitle_MSE] = title('Parametope Validation MSE', ...
-    'Norm of distance between Monte-Carlo predictions and Ellipsoid surface','Interpreter','latex');
-grid on;
-hold on;
-xlabel('$k_{sim}$','Interpreter','latex');
-ylabel('$k_{pred}$','Interpreter','latex');
-zlabel('$MSE$','Interpreter','latex');
-surf(MSE);
-colorbar;
-hold off;
+if enable_monteCarlo
+    % Plot MSE 
+    figure;
+    [title_MSE,subtitle_MSE] = title('Parametope Validation MSE', ...
+        'Norm of distance between Monte-Carlo predictions and Ellipsoid surface','Interpreter','latex');
+    grid on;
+    hold on;
+    xlabel('$k_{sim}$','Interpreter','latex');
+    ylabel('$k_{pred}$','Interpreter','latex');
+    zlabel('$MSE$','Interpreter','latex');
+    surf(MSE);
+    colorbar;
+    hold off;
+end
 
 function vehi_vec = init_all_vehi_local(Ts,pred_hor)
 %INIT_ALL_VEHI outputs cell vector of vehiStruct
@@ -609,7 +641,7 @@ end
 
 end
 
-function p_vec = plotParametope(y,alph_vec,x,nx,ops,patch_vec)
+function p_vec = plotParametope(y,alph_vec,x,nx,ops,patch_vec,dim)
 if isempty(patch_vec)
     p_vec = cell(1,size(y,2));
 else
@@ -628,6 +660,9 @@ for k=1:size(p_vec,2)
         % Q = ((1)^-1.*alph'*alph); % Shape Matrix
 
         [w,W] = ellip2R3(x(:,k),Q);
+        if dim==2
+            [w,W] = ellipIntersectHyp(w,W,[0;0;1],0);
+        end
         
         [~,~,x_opt,K] = ellipPoints(w,W,50);
     

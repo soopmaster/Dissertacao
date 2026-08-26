@@ -56,6 +56,7 @@ function [u, auxSt] = quadController(x0, xs, auxSt, pred_hor, tf, vehi)
     % x0 : current state [x0; alph0]
     % xs : desired state [ps; vs; ~]
     % auxSt : contains acceleration and jerk
+    pred_hor = size(xs,2)-1;
     xs = xs(:,end);
 
     Ts = vehi.Ts;
