@@ -39,8 +39,8 @@ prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
 enable_monteCarlo = 1;
-enable_disp = 1;
-make_vid = 1;
+enable_disp = 0;
+make_vid = 0;
 
 % === Init vehiStruct === &
 vehi_vec = init_all_vehi_local(Ts,pred_hor); % Cell vec with vehiSimStruct
@@ -86,10 +86,13 @@ end
 
 %vehiPred = vehi_vec{1}; % Auxilliary vehi for prediction
 
+% MSE vec for parametope. Columns are pred step, Rows sim step
+MSE = zeros(pred_hor-1,0); 
+
 % === Start Figure === %
 fig=figure('WindowState','maximized');
-% ax3D = subplot(2,2,[1 3]);
-% axTop = subplot(2,2,2);
+% ax3D = subplot(1,2,1);
+% axMSE = subplot(1,2,2);
 % axSide = subplot(2,2,4);
 % axes(ax3D)
 hold on;
@@ -118,7 +121,8 @@ axis equal
 % === Simulation === %
 telapse_total = tic;
 k=1;
-while k<knum && norm(vehi_vec{1}.x(1:3,k)-critp_ref)>=0.1
+% norm(vehi_vec{1}.x(1:3,k)-critp_ref)>=0.1
+while k<knum && 1
     % Update subtitle
     subtitle_3D.String = ['k = ',num2str(k)];
     disp(['=== Computing ', num2str(k), '/', num2str(knum), ' interval ===']);
@@ -142,7 +146,7 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-critp_ref)>=0.1
 
         if enable_monteCarlo
             % [xVal] = prmtpMonteCarloVal_surf(vehi.xpred{end,1}(1:nx,:),alph_vec,vehi.ypred{end,1},10,Ts,vehiSt);
-            [x_branch,x_leaf] = prmtpMonteCarloVal_tree(vehi.xpred{end,1}(1:nx,:),vehi.xpred{end,1}(nx+(1:nx^2),:),vehi.xpred{end,1}(end,:),1,Ts,vehiSt);
+            [x_branch,MSE(:,k)] = prmtpMonteCarloVal_tree(vehi.xpred{end,1}(1:nx,:),vehi.xpred{end,1}(nx+(1:nx^2),:),vehi.xpred{end,1}(end,:),1,Ts,vehiSt);
         end
 
         % === Update Plot === %
@@ -153,7 +157,7 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-critp_ref)>=0.1
             vehi.prmtpPatch = plotParametope(vehi.xpred{end,1}(end,prmtp_ind),vehi.xpred{end,1}(nx+1:end-1,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
             if enable_monteCarlo
                 %x_leaf_ind = x_leaf(prmtp_ind,1);
-                x_leaf_ind = x_leaf;
+                %x_leaf_ind = x_leaf;
                 vehi.monteCarloPlot = plotMonteCarlo(x_branch,prmtp_ind,vehi.monteCarloPlot);
             end
                 %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
@@ -189,33 +193,18 @@ if make_vid == 1
     close(vid);
 end
 
-% % Plot Error Graph
-% err = vehi_vec{2}.error_track;
-% figure;
-% subplot(3,1,1);
-% grid on;
-% hold on;
-% plot(Ts.*(0:k-2),err(1,:),'DisplayName','Scaled Dist Error');
-% plot(Ts.*(0:k-2),err(4,:),'DisplayName','UnScaled Dist Error');
-% legend;
-% hold off;
-% subplot(3,1,2);
-% grid on;
-% hold on;
-% plot(Ts.*(0:k-2),err(2,:),'DisplayName','Scaled Control Action');
-% plot(Ts.*(0:k-2),err(5,:),'DisplayName','UnScaled Control Action');
-% legend;
-% hold off;
-% subplot(3,1,3);
-% grid on;
-% hold on;
-% plot(Ts.*(0:k-2),err(3,:),'DisplayName','Scaled Min DKL');
-% plot(Ts.*(0:k-2),err(6,:),'DisplayName','UnScaled Min DKL');
-% xlabel('$t [s]$','Interpreter','latex');
-% legend;
-% hold off;
-
-%save prmtpV5_data.mat vehi_vec % Save sim results (probably can't support casadi solver)
+% Plot MSE 
+figure;
+[title_MSE,subtitle_MSE] = title('Parametope Validation MSE', ...
+    'Norm of distance between Monte-Carlo predictions and Ellipsoid surface','Interpreter','latex');
+grid on;
+hold on;
+xlabel('$k_{sim}$','Interpreter','latex');
+ylabel('$k_{pred}$','Interpreter','latex');
+zlabel('$MSE$','Interpreter','latex');
+surf(MSE);
+colorbar;
+hold off;
 
 function vehi_vec = init_all_vehi_local(Ts,pred_hor)
 %INIT_ALL_VEHI outputs cell vector of vehiStruct
@@ -251,7 +240,7 @@ vehi_vec{1}.p_vec = p_vec;
 
 end
 
-function [x_branch,x_leaf] = prmtpMonteCarloVal_tree(x_vec,alph_vec,y_vec,N,Ts,vehiSt)
+function [x_branch,MSE] = prmtpMonteCarloVal_tree(x_vec,alph_vec,y_vec,N,Ts,vehiSt)
 % N : number of random inputs to propagate per tau cube face
 % Monte-Carlo starts here
 
@@ -282,19 +271,19 @@ tauU = tauU(:,(tauUnorm>0));
 U_branch_max = [F_max.*ones(1,size(tauU,2)); tauU];
 U_branch_min = [F_min.*ones(1,size(tauU,2)); tauU];
 U_branch = [U_branch_min, U_branch_max];
+num_branch = size(U_branch,2);
+
+% Squared error vec
+SE = zeros(1,num_branch);
+MSE = zeros(hor-1,1);
 
 x_branch = cell(hor,1);
-x_branch{1,1} = repmat(x_vec(1:nx,1),1,size(U_branch,2));
+x_branch{1,1} = repmat(x_vec(1:nx,1),1,num_branch);
 % x_leaf = cell(hor,1);
-% x_leaf{1,1} = repmat(x_vec(1:nx,1),1,N*6*size(U_branch,2));
+% x_leaf{1,1} = repmat(x_vec(1:nx,1),1,N*6*num_branch);
 
 for k=1:hor-1
-    alph = v2m(alph_vec(:,k),nx);
-    y = y_vec(k);
-    q = x_vec(:,k);
-    Q = y.*(inv(alph'*alph)); % Shape Matrix
-
-    for k_br=1:size(U_branch,2)
+    for k_br=1:num_branch
         % 1. Compute points once with randomly selected boundary inputs (leaf)
         % For every face of tau cube, select random value between bounds
         % a = tau_min;
@@ -318,7 +307,20 @@ for k=1:hor-1
     % Cell index in x__ is samples at time k
 
     % 3. Calculate error to surface of next ellipsoid
-    %xVal{end+1,1} = xNxt;
+    if k<=hor
+        alph = v2m(alph_vec(:,k),nx);
+        y = y_vec(k);
+        q = x_vec(:,k);
+        Q = (inv(alph'*alph)); % Shape Matrix
+        [w,W] = ellip2R3(q,Q);
+    
+        for k_br=1:num_branch
+            % Squared error vec
+            SE(k_br) = ellipDistPoint(w,y,W,x_branch{k+1,1}(1:3,k_br))^2;
+        end
+        MSE(k) = (1/num_branch)*sum(SE);
+    end
+    
 
 end
 
