@@ -39,16 +39,17 @@ disc_dt = disc_step*Ts; % Time step between Reachability discs
 prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
-enable_prmtp = 1;
+enable_shadow = 1;
 enable_disp = 1;
 make_vid = 1;
 load_vehi_vec = 0;
 
 % === Init vehiStruct === &
-if load_vehi_vec && exist('prmtpV5_data.mat') 
-    load prmtpV5_data.mat;
+if load_vehi_vec && exist('prmtpV7_data.mat') 
+    load prmtpV7_data.mat;
 else
     vehi_vec = init_all_vehi_local(Ts,pred_hor); % Cell vec with vehiSimStruct
+    vehiAux_vec = vehi_vec;
 end
 numVehi = length(vehi_vec);
 % vehi_vec{1} is assumed to be the Invader 
@@ -57,19 +58,6 @@ for ind=1:numVehi
     vehi = vehi_vec{ind};
     nx = vehi.vehiSt.nx;
     nx_full = nx+nx^2;
-
-    if ind == 1
-        % === Define Critical Area === %
-        critp_ref = [0;0;0.5];
-        % critv_ref = [-5;5;-5];
-        critv_ref = [0;0;0];
-        pts_ref = [critp_ref; critv_ref; vehi.vehiSt.x0(3*2+1:end)];
-        vehi.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,pred_hor)];
-    else
-        pts_ref = repmat([vehi_vec{1}.vehiSt.x0;m2v(vehi_vec{1}.vehiSt.alph0);vehi_vec{1}.vehiSt.ysim0],1,pred_hor);
-        vehi.pts_ref{1} = pts_ref;
-        %vehi.pts_ref = repmat(vehi.vehiSt.x0,1,pred_hor+1);
-    end
 
     % === Init Simulation Vectors === %
     vehi.x = zeros(nx,knum);
@@ -85,6 +73,28 @@ for ind=1:numVehi
     %vehi.ypred = cell(0,0);
 
     vehi.error_track = [];
+
+    % === Auxilliary vehi without plots for last prediction
+    vehiAux_vec{ind} = vehi;
+    if ind == 1
+        % === Define Critical Area === %
+        critp_ref = [0;0;0.5];
+        % critv_ref = [-5;5;-5];
+        critv_ref = [0;0;0];
+        pts_ref = [critp_ref; critv_ref; vehi.vehiSt.x0(3*2+1:end)];
+        vehi.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,pred_hor)];
+
+        vehiAux_vec{ind}.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,knum)];
+        vehiAux_vec{ind}.ops.plot.edgecolor = 'r'; vehiAux_vec{ind}.ops.plot.wirestyle = '-'; vehiAux_vec{ind}.ops.plot.linewidth = 0.5;
+    else
+        pts_ref = repmat([vehi_vec{1}.vehiSt.x0;m2v(vehi_vec{1}.vehiSt.alph0);vehi_vec{1}.vehiSt.ysim0],1,pred_hor);
+        vehi.pts_ref{1} = pts_ref;
+
+        vehiAux_vec{ind}.pts_ref{1} = repmat(pts_ref(:,1),1,pred_hor);
+        vehiAux_vec{ind}.ops.plot.edgecolor = 'g'; vehiAux_vec{ind}.ops.plot.wirestyle = '-'; vehiAux_vec{ind}.ops.plot.linewidth = 0.5;
+
+        %vehi.pts_ref = repmat(vehi.vehiSt.x0,1,pred_hor+1);
+    end
 
     % Define window bounds
 
@@ -109,6 +119,8 @@ ylabel('$y$','Interpreter','latex');
 zlabel('$z$','Interpreter','latex');
 for ind=1:numVehi
     pts_ref = vehi_vec{ind}.pts_ref{1};
+
+    vehiAux_vec{ind}.prmtpShadow = {}; % Parametope Shadow patch
     vehi_vec{ind}.prmtpPatch = {};
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
     %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
@@ -132,6 +144,7 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
     telapse_k = tic;
     for kVehi=1:numVehi
         vehi = vehi_vec{kVehi};
+        vehiAux = vehiAux_vec{kVehi};
         vehiSt = vehi.vehiSt;
         nx = vehiSt.nx;
         nx_full = nx+nx^2;
@@ -153,23 +166,84 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
         vehi.u(:,k) = vehi.upred{end,1}(:,1);
         vehi.error_track(:,k) = vehi.ctrlSt.auxSt.error_track;
 
+        vehi_vec{kVehi} = vehi;
+
+        if enable_shadow
+        % === Compute Final parametope
+            if kVehi==1
+                [xpred_aux, upred_aux, auxStaux] = calcNxt(vehiAux.x(:,k), vehiAux.pts_ref{end,1}, vehiAux, Ts, knum);
+                vehiAux.xpred{end+1,1} = xpred_aux(:,1:knum);
+                vehiAux.upred{end+1,1} = upred_aux(:,1:knum);
+                vehiAux.ctrlSt.auxSt = auxStaux;
+        
+                vehiAux.x(:,k+1) = vehiAux.xpred{end,1}(1:nx,2);
+                vehiAux.u(:,k) = vehiAux.upred{end,1}(:,1);
+                vehiAux.error_track(:,k) = vehiAux.ctrlSt.auxSt.error_track;
+            else
+                % 1. Use Attacker's xpred and upred
+                % 2. alph0, ysim0 from ellipsoid with lowest D_KL
+                DKL_min = Inf;
+                for ind=1:pred_hor
+                    qA = vehi_vec{1}.xpred{end,1}(1:nx,ind);
+                    qD = vehi_vec{kVehi}.xpred{end,1}(1:nx,ind);
+                    yA = vehi_vec{1}.xpred{end,1}(end,ind);
+                    yD = vehi_vec{kVehi}.xpred{end,1}(end,ind);
+                    alphA = v2m(vehi_vec{1}.xpred{end,1}(nx+(1:nx^2),ind),nx);
+                    alphD = v2m(vehi_vec{kVehi}.xpred{end,1}(nx+(1:nx^2),ind),nx);
+                    
+                    QA = ellipFromAlph(alphA,yA);
+                    [wA,WA] = ellip2R3(qA,QA);
+                    QD = ellipFromAlph(alphD,yD);
+                    [wD,WD] = ellip2R3(qD,QD);
+
+                    DKL_curr = kullback_leibler_div(qD,QD,qA,QA);
+                    if DKL_curr<DKL_min
+                        DKL_min = DKL_curr;
+                        alph0 = alphD;
+                        y0 = yD;
+                    end
+                end
+
+                % Some future compatibility problems here: The dynamics used SHOULD be the Attacker's, AND alph used should be compatible.
+                % Right now theres no guarantee they are compatible (this only works because they so happen to have the same dynamics)
+                [alphs, ys] = calcParametopes(vehiAux_vec{1}.xpred{end,1}(:,pred_hor+1:end), vehiAux_vec{1}.upred{end,1}(:,pred_hor+1:end), alph0, y0, vehi_vec{1}, Ts);
+                offset = [qD(1:3);zeros(nx-3,1)]-vehiAux_vec{1}.xpred{end,1}(1:nx,1);
+                vehiAux.xpred{end+1,1} = [vehiAux_vec{1}.xpred{end,1}(1:nx,:)+offset; [vehiAux_vec{1}.xpred{end,1}(nx+1:end,1:pred_hor), [alphs; ys]]];
+            end
+            % Find prediction closest to ground
+            % error = vehiAux.xpred{end,1}(1:3,:)-critp_ref;
+            % [min_dist, min_ind] = min(sum(error.^2,1).^(1/2));
+            % error = vehiAux.xpred{end,1}(3,:);
+            % [min_dist, min_ind] = min(sqrt(error.^2));
+            col = [];
+            tol = 1e-2;
+            while isempty(col)
+                [~,col] = find(sqrt(vehiAux.xpred{end,1}(3,:).^2)<= tol);
+                tol = tol*10;
+            end
+            min_ind = col(1);
+        end
         %[alph_vec, vehi.ypred{end+1,1}] = calcParametopes(vehi.xpred{end,1}, vehi.upred{end,1}, vehi, Ts);
 
         % === Update Plot === %
         plotBodyFunc = vehiSt.plotBodyFunc; 
         vehi.bodyPlot = plotBodyFunc(vehi.x(:,k), vehi.bodyPlot);
         addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
+        if enable_shadow
+                vehiAux.prmtpShadow = plotParametope(vehiAux.xpred{end,1}(end,min_ind),vehiAux.xpred{end,1}(nx+1:end-1,min_ind),vehiAux.xpred{end,1}(1:nx,min_ind),nx,vehiAux.ops,vehiAux.prmtpShadow,2);
+        end
         if enable_disp
-            vehi.prmtpPatch = plotParametope(vehi.xpred{end,1}(end,prmtp_ind),vehi.xpred{end,1}(nx+1:end-1,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
+            vehi.prmtpPatch = plotParametope(vehi.xpred{end,1}(end,prmtp_ind),vehi.xpred{end,1}(nx+1:end-1,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch,3);
             %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
             %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
-            if k==1
-                axis equal
-                axis manual
-            end
+        end
+        if k==1
+            axis equal
+            axis manual
         end
 
         vehi_vec{kVehi} = vehi;
+        vehiAux_vec{kVehi} = vehiAux;
         
         %legend({'target', 'r_T', 'Path'});
     end
@@ -187,7 +261,7 @@ hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
 if make_vid == 1
-    vid=VideoWriter('test_v7.mp4','MPEG-4');
+    vid=VideoWriter('testShadow_v7.mp4','MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frame);
@@ -220,7 +294,17 @@ xlabel('$t [s]$','Interpreter','latex');
 legend;
 hold off;
 
-%save prmtpV5_data.mat vehi_vec % Save sim results (probably can't support casadi solver)
+% === Save Data
+vehi_save = cell(1,numVehi);
+for kVehi=1:numVehi
+    vehi_save{kVehi}.x = vehi_vec{kVehi}.x;
+    vehi_save{kVehi}.u = vehi_vec{kVehi}.u;
+    vehi_save{kVehi}.xpred = vehi_vec{kVehi}.xpred;
+    vehi_save{kVehi}.upred = vehi_vec{kVehi}.upred;
+    vehi_save{kVehi}.error_track = vehi_vec{kVehi}.error_track;
+    vehi_save{kVehi}.pts_ref = vehi_vec{kVehi}.pts_ref;
+end
+save prmtpV7_data.mat vehi_save % Save sim results (probably can't support casadi solver)
 
 function vehi_vec = init_all_vehi_local(Ts,pred_hor)
 %INIT_ALL_VEHI outputs cell vector of vehiStruct
@@ -299,22 +383,24 @@ traj_new = [traj; 0.*ones(1,size(traj,2)); 0.*ones(1,size(traj,2))]; % Yaw and d
             
 end
 
-function [alph_vec, y] = calcParametopes(x, u, vehi, Ts)
+function [alph_vec, y] = calcParametopes(x, u, alph0, y0, vehi, Ts)
 vehiSt = vehi.vehiSt;
 nx = vehiSt.nx;
 
 alph_vec = zeros(nx^2,size(x,2));
-alph_vec(:,1) = reshape(vehiSt.alph0,[],1);
+alph_vec(:,1) = m2v(alph0);
+%alph_vec(:,1) = reshape(vehiSt.alph0,[],1);
 
 y = zeros(1,size(x,2));
-y(1) = vehiSt.ysim0;
+y(1) = y0;
+%y(1) = vehiSt.ysim0;
 
 u_max = [vehiSt.vbds_init(nx+1,2); zeros(3,1)];
 
 for k=1:size(x,2)-1
     % === Propagate Parametope === %
     jacFunc = vehiSt.jacFunc;
-    Dfxo = jacFunc(x(:,k), u(:,k));
+    Dfxo = jacFunc(x(1:nx,k), u(:,k));
     
     alph = reshape(alph_vec(:,k),nx,[]);
     alphk_1 = runge_kutta4(@(y) prmtpU(y,-Dfxo),Ts,alph);
@@ -451,7 +537,7 @@ function traj = plotTraj(x, traj)
     traj.ZData = x(3,:);
 end
 
-function p_vec = plotParametope(y,alph_vec,x,nx,ops,patch_vec)
+function p_vec = plotParametope(y,alph_vec,x,nx,ops,patch_vec,dim)
 if isempty(patch_vec)
     p_vec = cell(1,size(y,2));
 else
@@ -466,10 +552,14 @@ for k=1:size(p_vec,2)
         p_vec{k}.Faces = 1;
     else
         alph = v2m(alph_vec(:,k),nx);
-        Q = (y(k)).*(inv(alph'*alph)); % Shape Matrix
+        %Q = (y(k)).*(inv(alph'*alph)); % Shape Matrix
         % Q = ((1)^-1.*alph'*alph); % Shape Matrix
+        Q = ellipFromAlph(alph,y(k));
 
         [w,W] = ellip2R3(x(:,k),Q);
+        if dim==2
+            [w,W] = ellipIntersectHyp(w,W,[0;0;1],0);
+        end
         
         [~,~,x_opt,K] = ellipPoints(w,W,50);
     

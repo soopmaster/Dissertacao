@@ -39,9 +39,9 @@ prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
 enable_monteCarlo = 0;
-enable_shadow = 1;
-enable_disp = 1;
-make_vid = 1;
+enable_shadow = 0;
+enable_disp = 0;
+make_vid = 0;
 
 % === Init vehiStruct === &
 vehi_vec = init_all_vehi_local(Ts,pred_hor); % Cell vec with vehiSimStruct
