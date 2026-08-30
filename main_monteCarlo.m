@@ -38,7 +38,7 @@ disc_dt = disc_step*Ts; % Time step between Reachability discs
 prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
-enable_monteCarlo = 0;
+enable_monteCarlo = 1;
 enable_shadow = 0;
 enable_disp = 0;
 make_vid = 0;
@@ -91,6 +91,7 @@ vehiAux.ops.plot.edgecolor = 'r'; vehiAux.ops.plot.wirestyle = '-'; vehiAux.ops.
 
 % MSE vec for parametope. Columns are pred step, Rows sim step
 MSE = zeros(pred_hor-1,0); 
+x_branch = {};
 
 % === Start Figure === %
 fig=figure('WindowState','maximized');
@@ -101,7 +102,7 @@ fig=figure('WindowState','maximized');
 hold on;
 grid on
 view(3)
-[title_3D,subtitle_3D] = title('Parametope Validation Sim (Monte-Carlo)', ...
+[title_3D,subtitle_3D] = title(['Parametope Validation Sim (Monte-Carlo), N=',num2str(pred_hor)], ...
     'k = 0','Interpreter','latex');
 xlabel('$x$','Interpreter','latex');
 ylabel('$y$','Interpreter','latex');
@@ -173,7 +174,7 @@ while k<knum && 1
 
         if enable_monteCarlo
             % [xVal] = prmtpMonteCarloVal_surf(vehi.xpred{end,1}(1:nx,:),alph_vec,vehi.ypred{end,1},10,Ts,vehiSt);
-            [x_branch,MSE(:,k)] = prmtpMonteCarloVal_tree(vehi.xpred{end,1}(1:nx,:),vehi.xpred{end,1}(nx+(1:nx^2),:),vehi.xpred{end,1}(end,:),1,Ts,vehiSt);
+            [x_branch{end+1,1},MSE(:,k)] = prmtpMonteCarloVal_tree(vehi.xpred{end,1}(1:nx,:),vehi.xpred{end,1}(nx+(1:nx^2),:),vehi.xpred{end,1}(end,:),1,Ts,vehiSt);
         end
 
         % === Update Plot === %
@@ -188,7 +189,7 @@ while k<knum && 1
             if enable_monteCarlo
                 %x_leaf_ind = x_leaf(prmtp_ind,1);
                 %x_leaf_ind = x_leaf;
-                vehi.monteCarloPlot = plotMonteCarlo(x_branch,prmtp_ind,vehi.monteCarloPlot);
+                vehi.monteCarloPlot = plotMonteCarlo(x_branch{end,1},prmtp_ind,vehi.monteCarloPlot);
             end
                 %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
             %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
@@ -215,8 +216,9 @@ end
 hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
+%%
 if make_vid == 1
-    vid=VideoWriter('test_monteCarloShadow.mp4','MPEG-4');
+    vid=VideoWriter('test_monteCarlo.mp4','MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frame);
@@ -236,6 +238,25 @@ if enable_monteCarlo
     surf(MSE);
     colorbar;
     hold off;
+
+    % Plot 3 frames of Sim
+    figure
+    hold on;
+    grid on
+    view(3)
+    frame_ind = 1:floor(knum/4):knum;
+    [title_3frame,subtitle_3frame] = title(['Parametope Validation Sim (Monte-Carlo), N=',num2str(pred_hor)], ...
+        ['k = ',num2str(frame_ind)],'Interpreter','latex');
+    xlabel('$x$','Interpreter','latex');
+    ylabel('$y$','Interpreter','latex');
+    zlabel('$z$','Interpreter','latex');
+    axis equal;
+    for ind=frame_ind
+        vehi.vehiSt.plotBodyFunc(vehi.x(:,ind), vehi.vehiSt.bodyPlot());
+        plotParametope(vehi.xpred{ind,1}(end,prmtp_ind),vehi.xpred{ind,1}(nx+1:end-1,prmtp_ind),vehi.xpred{ind,1}(1:nx,prmtp_ind),nx,ops,{},3);
+        plotMonteCarlo(x_branch{ind,1},prmtp_ind,{});
+    end
+    
 end
 
 function vehi_vec = init_all_vehi_local(Ts,pred_hor)
@@ -245,7 +266,7 @@ function vehi_vec = init_all_vehi_local(Ts,pred_hor)
 vehi_vec = cell(1,1);
 
 % Define Inital Positions
-p10 = [2;-2;2];
+p10 = [5;-5;2];
 x0 = {p10};
 
 vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);

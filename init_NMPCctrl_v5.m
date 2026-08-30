@@ -1,0 +1,277 @@
+function [ctrlSt] = init_NMPCctrl_v5(ny,N,Ts,vehi)
+%INIT_NMPC outputs ctrlStruct of NMPC (for parametope)
+%   
+% ctrlSt : struct (struct with components of prmtp NMPC)
+% MAIN (interfaces with main.m)
+%   .auxSt : contains auxiliary variables unique to this controller that
+%       may need to be modified online
+%   .contrlFunc
+% AUXILIARY (does not interface with main.m)
+
+% Using github workshop
+% (https://github.com/MMehrez/MPC-and-MHE-implementation-in-MATLAB-using-Casadi/blob/master/workshop_github/MPC_MHE_slides.pdf)
+
+% Using documentation:
+%   (https://systemanalysisdpt-cmc-msu.github.io/ellipsoids/doc/chap_ellcalc.html#affine-transformation)
+
+% Generates control inputs based on ellipsoid error
+% This version only propagates main system!! Not full ellipsoid
+
+% Multiple shooting OCP to transform to NLP
+
+import casadi.*
+
+nx = vehi.nx;
+nx_full = nx+nx^2;
+ny_full = ny+ny^2;
+nu = vehi.nu;
+
+x = SX.sym('x',nx);
+u = SX.sym('u',nu);
+rk4 = runge_kutta4(@(xfull) vehi.partDynFunc(xfull,u),Ts,x); % rk4 system r.h.s
+
+f = Function('f',{x,u},{rk4},{'xk','uk'},{'xk_1'});
+U = SX.sym('U',nu,N); % decision variables (control)
+% P = SX.sym('P',nx+3*N+ny_full*N); % parameters which include x0 and reference [x0;alphD0;alphD1...;ref1;ref2;...;refN]
+% parameters which include x0 and reference [xD0; ysD; wA(1);vec(WA1);wA(2);vec(WA2);...;...]
+x0size = nx;
+ysDsize = 1;
+ellipsAsize = (3+3^2);
+P = SX.sym('P',x0size + ysDsize*N + ellipsAsize*N); 
+X = SX.sym('X',nx,N+1); % States over optimization problem
+DKL_DA = SX.sym('DKL',N);
+DKL_AD = SX.sym('DKL',N);
+
+g = []; % Constraints vector
+
+xk = X(:,1); % initial state
+g = [g; xk-P(1:nx)]; % Initial condition constraints
+
+% Y = v2m(P(nx+3*N+1:end),ny_full); % reference
+% Y = v2m(P(nx+3*N+1:end),(ny+3^2)); % reference
+% scale_vec = v2m(P(nx+1:nx+3*N),3); % Parametope alph
+ysD = P(x0size+(1:ysDsize*N));
+ellipsA = v2m(P(x0size + ysDsize*N+1:end),ellipsAsize);
+Obj = Jfunc(X,ellipsA,U,ysD,DKL_DA,DKL_AD,ny); % Get Cost Function
+obj = Obj.obj_DKL_AD + Obj.obj_u + Obj.obj_DKL_DA;
+
+for k=1:N
+    xk = X(:,k);
+    uk = U(:,k);
+
+    xk_1 = X(:,k+1); % xk+1
+    fxk = f(xk,uk); % f(xk,uk)
+    g = [g; xk_1-fxk]; % [x0 = xinit; ...; xk+1 = f(xk,uk)]
+end
+
+% make the decision vars one collumn vector
+OPT_variables = [m2v(X); m2v(U)]; % = [x0; x1; ... ; xN+1; u0; u1; ... ; uN]
+
+nlp_prob = struct('f',obj,'x',OPT_variables, 'g',g,'p',P);
+opts = struct;
+opts.ipopt.max_iter = 100;
+opts.ipopt.print_level = 5;
+%opts.ipopt.print = 1;
+opts.print_out = 0;
+opts.print_in = 0;
+opts.print_time = 0;
+%opts.ipopt.acceptable_iter = 5;
+% opts.ipopt.acceptable_tol = 1e-8;
+% opts.ipopt.acceptable_obj_change_tol = 1e-6;
+%opts.ipopt.acceptable_tol = 1e-1;
+%opts.ipopt.acceptable_obj_change_tol = 1e-1;
+solver = nlpsol('solver', 'ipopt', nlp_prob, opts);
+
+args = struct;
+
+% Equality Constraints
+args.lbg(1:nx*(N+1),1) = 0;
+args.ubg(1:nx*(N+1),1) = 0;
+
+% States' bounds
+bx = inf.*ones(nx*(N+1),1);
+args.lbx(1:length(bx),1) = -bx;
+args.ubx(1:length(bx),1) = bx;
+args.lbx(3:nx:end) = 0; % Height must be above 0
+
+% Control bounds
+lbu = repmat(vehi.vbds_init(end-nu+1:end,1),N,1);
+ubu = repmat(vehi.vbds_init(end-nu+1:end,2),N,1);
+args.lbx(length(bx)+1:length(bx)+length(lbu),1) = lbu;
+args.ubx(length(bx)+1:length(bx)+length(lbu),1) = ubu;
+
+% Initial Conditions
+% Auxiliary error track at timestep [dist_error; |u|; min(D_KL)] 
+auxSt.error_track = zeros(6,1); 
+auxSt.u0 = repmat(vehi.u0,1,N);
+auxSt.X0 = repmat(vehi.x0,1,N+1); % Init states decision variable
+auxSt.ys = vehi.ysim0.*ones(1,N); % Scaling factors for axis of reduced parametopes
+
+ctrlSt.auxSt = auxSt;
+
+% === Specific Function Handles === %
+ctrlSt.ctrlFunc = @(x0,xs,auxSt) NMPC_prmtp(x0,xs,auxSt,solver,args,N,nx,nu,ny);
+
+end
+
+function [u, auxSt] = NMPC_prmtp(x0,xs,auxSt,solver,args,N,nx,nu,ny)
+u0 = auxSt.u0;
+X0 = auxSt.X0;
+ysD = auxSt.ys;
+
+statesA = xs(1:ny,:);
+alphsA = xs(ny+1:ny+ny^2,:);
+ysA = xs(end,:);
+
+% Packages optimization parameters and feeds them to NMPC solver
+% scale entries should be positive. 
+% all xs alphs should be full rank.
+
+paramwA = [];
+paramWA = [];
+
+tol = 1.5e-15;
+Tikh_coef = 1e-5;
+for k=1:size(xs,2)
+    % === 1. Condition Input of (A)ttacker
+    alphA = v2m(alphsA(:,k),ny);
+    yA = ysA(k);
+
+    qA = statesA(:,k);
+    QA = yA.*inv(alphA'*alphA);
+    [wA,WA] = ellip2R3(qA,QA);
+
+    %scale(:,k) = ysD(k).*[1;1;0.1];
+    % if any(scale(:,k)<=0)
+    %     scale(:,k) = scale(:,k) + (-min(scale(:,k)) + Tikh_coef).*ones(size(scale(:,k)));
+    % end
+
+    % [evecA,evalA] = eig(QA);
+    % [evecA,evalA] = eig(WA);
+    % evalA1 = diag(evalA);
+    % if 0
+    %     % any(evalA1<=0)
+    %     %evalAnew = evalA1 + (-min(evalA1) + Tikh_coef).*ones(size(evalA1));
+    %     evalAnew = 0.5.*[0.1;0.1;1];
+    %     % QA = evecA*diag(evalAnew)*evecA';
+    %     WA = evecA*diag(evalAnew)*evecA';
+    %     %sc = (-min(evalA) + Tikh_coef);
+    %     %QA = QA+sc.*eye(ny);
+    % end
+    
+    % %closeToSing = (rank(alphA) < size(alphA,1));
+    % alphA_aux = alphA;
+    % closeToSing = rcond(alphA_aux'*alphA_aux) < tol;
+    % Tikh_coef = 1e-15;
+    % while closeToSing
+    %     % Use Ridge Regression (Tikhonov Regression) if QA is close to singular
+    %     Tikh_coef = Tikh_coef*1e1;
+    %     alphA_aux = alphA + Tikh_coef.*eye(ny);
+    %     closeToSing = rcond(alphA_aux'*alphA_aux) < tol;
+    % end
+    % paramQA(ny+1:end,k) = m2v(QA);
+    paramwA = [paramwA, wA];
+    paramWA = [paramWA, m2v(WA)];
+end
+
+args.p = [x0(1:nx); m2v(ysD); m2v([paramwA;paramWA])]; % set values of parameter vector
+args.x0 = [m2v(X0(1:nx,:)); m2v(u0)]; % init value of optimization variables
+sol = solver('x0',args.x0,'lbx',args.lbx,'ubx',args.ubx,'lbg',args.lbg,'ubg',args.ubg,'p',args.p);
+u = v2m(full(sol.x(nx*(N+1)+1:end)),nu); % control input from solution
+u_out = u(:,1);
+
+% Record Error/Cost!
+DKL_DA = [];
+DKL_AD = [];
+E = Jfunc(X0,[paramwA;paramWA],u0,ysD,DKL_DA,DKL_AD,ny);
+auxSt.error_track = [E.obj_DKL_DA; E.obj_DKL_AD; E.obj_u; E.unsObj_DKL_DA; E.unsObj_DKL_AD; E.unsObj_u];
+
+auxSt.X0 = v2m(full(sol.x(1:nx*(N+1))),nx); % history of solution TRAJECTORY accross horizon
+auxSt.u0 = [u(:,2:end), u(:,end)];
+end
+
+function KK = ctrl_gains(k,N)
+% Return control gains at k prediction horizon step
+K0 = 1; % Start gain
+KN = 20; % End Gain
+steep = 2; % Steepness of exponential
+
+%Qd = exp(steep*(-k+log(K0-KN)/steep)) + KN; % Starts big, goes down
+Qd = exp(steep*(k-N+log(KN-K0)/steep)) + K0; % starts small, goes up
+R = 0.01;
+Qm = 1; % Shape Matrix weight
+Qda = 1;
+Qad = 10;
+
+KK.Qd = Qd; KK.R = R; KK.Qm = Qm; KK.Qda = Qda; KK.Qad = Qad;
+end
+
+function [Obj] = Jfunc(X,ellipsA,U,ysD,DKL_DA,DKL_AD,ny)
+% X : [xD0, xD1,...]
+% ellipsA : [wA0;vec(WA0), wA1;vec(WA1),...]
+% ysD : [yD0, yD1, ...]
+% Given X [nx, N+1], Y [ny_full, N] and U [nu, N] compute cost function for
+% NMPC along prediction horizon
+% Obj : Struct that contains scaled and unscaled objective function
+
+% J = sum(||qD-qA||^2*Qk + ||u||^2*Rk, k=1:N) - Qda*LSE(-1, [D_KL(QD,QA)^2,...]) + Qad*LSE(-1, [D_KL(QD,QA)^2, ...]
+
+N = size(U,2);
+nx = size(X,1);
+nu = size(U,1);
+
+obj_d = 0; % distance objective function
+obj_u = 0; % u objective function
+unsObj_d = 0; % distance objective function
+unsObj_u = 0; % u objective function
+for k=1:N
+    xk = X(:,k);
+    ref = ellipsA(:,k);
+    uk = U(:,k);
+
+    wA = ref(1:3);
+    WA = v2m(ref(3+1:end),3);
+
+    wD = xk(1:3);
+    rotD = v2m(xk(7:3*3+7-1),3); % Extract Rotation Matrix of sys D
+    %S = diag(ysD(:,k));
+    WD = rotD*(ysD(k)*diag([1,1,0.1]))*rotD'; % Apply scaling
+
+    KK = ctrl_gains(k,N);
+    Qk = KK.Qd;
+    Rk = KK.R.*eye(nu);
+
+    % OR compute Kullback-Leibler Divergence
+    DKL_DA(k) = kullback_leibler_div(wD,WD,wA,WA);
+    DKL_AD(k) = kullback_leibler_div(wA,WA,wD,WD);
+    %D_KL(k) = correlation_matrix_distance(wA,WA,wD,WD)^2;
+    
+    obj_u = obj_u + uk'*Rk*uk;
+    unsObj_u = unsObj_u + uk'*uk; 
+    % obj_d = obj_d + (wA-wD)'*Qk*(wA-wD);
+    % unsObj_d = unsObj_d + (wA-wD)'*(wA-wD);
+end
+% Qm = KK.Qm;
+Qad = KK.Qad;
+Qda = KK.Qda;
+%LSE_coef = -4;
+%LSE_coef = -0.1;
+LSE_coef = -0.5;
+%LSE_coef = -20;
+unsObj_DKL_DA = -LSE(LSE_coef,DKL_DA);
+obj_DKL_DA = Qda*unsObj_DKL_DA;
+
+unsObj_DKL_AD = LSE(LSE_coef,DKL_AD);
+obj_DKL_AD = Qad*unsObj_DKL_AD;
+
+% Obj.obj_d = obj_d;
+Obj.obj_u = obj_u;
+Obj.obj_DKL_DA = obj_DKL_DA;
+Obj.obj_DKL_AD = obj_DKL_AD;
+
+% Obj.unsObj_d = unsObj_d;
+Obj.unsObj_u = unsObj_u;
+Obj.unsObj_DKL_DA = unsObj_DKL_DA;
+Obj.unsObj_DKL_AD = unsObj_DKL_AD;
+
+end

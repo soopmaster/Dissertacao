@@ -32,14 +32,14 @@ knum = simT/Ts;
 %calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
 calc_traj_dt = Ts;
 recalc_step = calc_traj_dt/Ts;
-pred_hor = 20;
+pred_hor = 50;
 discnum = 5;
 disc_step = floor(pred_hor/discnum);
 disc_dt = disc_step*Ts; % Time step between Reachability discs
 prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
-enable_shadow = 1;
+enable_shadow = 0;
 enable_disp = 1;
 make_vid = 1;
 load_vehi_vec = 0;
@@ -76,6 +76,7 @@ for ind=1:numVehi
 
     % === Auxilliary vehi without plots for last prediction
     vehiAux_vec{ind} = vehi;
+    vehiAux_vec{ind}.min_ind = [];
     if ind == 1
         % === Define Critical Area === %
         critp_ref = [0;0;0.5];
@@ -121,6 +122,7 @@ for ind=1:numVehi
     pts_ref = vehi_vec{ind}.pts_ref{1};
 
     vehiAux_vec{ind}.prmtpShadow = {}; % Parametope Shadow patch
+    vehiAux_vec{ind}.prmtpPatch = {}; % Parametope Shadow patch
     vehi_vec{ind}.prmtpPatch = {};
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
     %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
@@ -171,6 +173,7 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
         if enable_shadow
         % === Compute Final parametope
             if kVehi==1
+                active_shadow = 1;
                 [xpred_aux, upred_aux, auxStaux] = calcNxt(vehiAux.x(:,k), vehiAux.pts_ref{end,1}, vehiAux, Ts, knum);
                 vehiAux.xpred{end+1,1} = xpred_aux(:,1:knum);
                 vehiAux.upred{end+1,1} = upred_aux(:,1:knum);
@@ -199,14 +202,25 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
                     DKL_curr = kullback_leibler_div(qD,QD,qA,QA);
                     if DKL_curr<DKL_min
                         DKL_min = DKL_curr;
+                        min_ind = ind;
+                        dist_min = norm(wA-wD);
+                        ymin = sqrt(yA)+sqrt(yD);
                         alph0 = alphD;
                         y0 = yD;
                     end
                 end
+                % Only project shadow when DKL is bellow a certain threshhold
+                active_shadow = dist_min <= ymin;
+                dist_min_vec(k) = min_ind;
+                if active_shadow
+                    % Some future compatibility problems here: The dynamics used SHOULD be the Attacker's, AND alph used should be compatible.
+                    % Right now theres no guarantee they are compatible (this only works because they so happen to have the same dynamics)
+                    [alphs, ys] = calcParametopes(vehiAux_vec{1}.xpred{end,1}(:,pred_hor+1:end), vehiAux_vec{1}.upred{end,1}(:,pred_hor+1:end), alph0, y0, vehi_vec{1}, Ts);
+                else 
+                    alphs = repmat(m2v(eye(nx)),1,knum-pred_hor);
+                    ys = 1e-2.*ones(1,knum-pred_hor);
+                end
 
-                % Some future compatibility problems here: The dynamics used SHOULD be the Attacker's, AND alph used should be compatible.
-                % Right now theres no guarantee they are compatible (this only works because they so happen to have the same dynamics)
-                [alphs, ys] = calcParametopes(vehiAux_vec{1}.xpred{end,1}(:,pred_hor+1:end), vehiAux_vec{1}.upred{end,1}(:,pred_hor+1:end), alph0, y0, vehi_vec{1}, Ts);
                 offset = [qD(1:3);zeros(nx-3,1)]-vehiAux_vec{1}.xpred{end,1}(1:nx,1);
                 vehiAux.xpred{end+1,1} = [vehiAux_vec{1}.xpred{end,1}(1:nx,:)+offset; [vehiAux_vec{1}.xpred{end,1}(nx+1:end,1:pred_hor), [alphs; ys]]];
             end
@@ -216,12 +230,13 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
             % error = vehiAux.xpred{end,1}(3,:);
             % [min_dist, min_ind] = min(sqrt(error.^2));
             col = [];
-            tol = 1e-2;
+            tol = 1e-3;
             while isempty(col)
                 [~,col] = find(sqrt(vehiAux.xpred{end,1}(3,:).^2)<= tol);
                 tol = tol*10;
             end
-            min_ind = col(1);
+            grd_ind = col(1);
+            vehiAux.min_ind(end+1) = grd_ind;
         end
         %[alph_vec, vehi.ypred{end+1,1}] = calcParametopes(vehi.xpred{end,1}, vehi.upred{end,1}, vehi, Ts);
 
@@ -229,11 +244,15 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
         plotBodyFunc = vehiSt.plotBodyFunc; 
         vehi.bodyPlot = plotBodyFunc(vehi.x(:,k), vehi.bodyPlot);
         addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
-        if enable_shadow
-                vehiAux.prmtpShadow = plotParametope(vehiAux.xpred{end,1}(end,min_ind),vehiAux.xpred{end,1}(nx+1:end-1,min_ind),vehiAux.xpred{end,1}(1:nx,min_ind),nx,vehiAux.ops,vehiAux.prmtpShadow,2);
+        if enable_shadow && active_shadow
+                vehiAux.prmtpShadow = plotParametope(vehiAux.xpred{end,1}(end,grd_ind),vehiAux.xpred{end,1}(nx+1:end-1,grd_ind),vehiAux.xpred{end,1}(1:nx,grd_ind),nx,vehiAux.ops,vehiAux.prmtpShadow,2);
         end
         if enable_disp
             vehi.prmtpPatch = plotParametope(vehi.xpred{end,1}(end,prmtp_ind),vehi.xpred{end,1}(nx+1:end-1,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch,3);
+            if enable_shadow && kVehi~=1 && active_shadow
+                shadow_ind = [prmtp_ind(end):disc_step:grd_ind];
+                vehiAux.prmtpPatch = plotParametope(vehiAux.xpred{end,1}(end,shadow_ind),vehiAux.xpred{end,1}(nx+1:end-1,shadow_ind),vehiAux.xpred{end,1}(1:nx,shadow_ind),nx,vehiAux.ops,vehiAux.prmtpPatch,3);
+            end
             %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
             %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
         end
@@ -261,7 +280,7 @@ hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
 if make_vid == 1
-    vid=VideoWriter('testShadow_v7.mp4','MPEG-4');
+    vid=VideoWriter('testNMPCv5_v7.mp4','MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frame);
@@ -274,22 +293,22 @@ figure;
 subplot(3,1,1);
 grid on;
 hold on;
-plot(Ts.*(0:k-2),err(1,:),'DisplayName','Scaled Dist Error');
-plot(Ts.*(0:k-2),err(4,:),'DisplayName','UnScaled Dist Error');
+plot(Ts.*(0:k-2),err(1,:),'DisplayName','Scaled Min DKL_DA');
+plot(Ts.*(0:k-2),err(4,:),'DisplayName','UnScaled Min DKL_DA');
 legend;
 hold off;
 subplot(3,1,2);
 grid on;
 hold on;
-plot(Ts.*(0:k-2),err(2,:),'DisplayName','Scaled Control Action');
-plot(Ts.*(0:k-2),err(5,:),'DisplayName','UnScaled Control Action');
+plot(Ts.*(0:k-2),err(2,:),'DisplayName','Scaled Min DKL_AD');
+plot(Ts.*(0:k-2),err(5,:),'DisplayName','UnScaled Min DKL_AD');
 legend;
 hold off;
 subplot(3,1,3);
 grid on;
 hold on;
-plot(Ts.*(0:k-2),err(3,:),'DisplayName','Scaled Min DKL');
-plot(Ts.*(0:k-2),err(6,:),'DisplayName','UnScaled Min DKL');
+plot(Ts.*(0:k-2),err(3,:),'DisplayName','Scaled Control Action');
+plot(Ts.*(0:k-2),err(6,:),'DisplayName','UnScaled Control Action');
 xlabel('$t [s]$','Interpreter','latex');
 legend;
 hold off;
@@ -326,7 +345,8 @@ vehi_vec{2}.vehiSt = init_QuadDroneNMPC(x0{2},Ts);
 
 vehi_vec{1}.ctrlSt = init_MellingerCtrl(pred_hor,2,vehi_vec{1}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_NMPCctrl_v2(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
-vehi_vec{2}.ctrlSt = init_NMPCctrl_v4(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
+% vehi_vec{2}.ctrlSt = init_NMPCctrl_v4(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
+vehi_vec{2}.ctrlSt = init_NMPCctrl_v5(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_MellingerCtrl_v2(pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_MellingerCtrl(4,vehi_vec{2}.vehiSt);
