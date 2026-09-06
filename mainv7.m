@@ -32,16 +32,16 @@ knum = simT/Ts;
 %calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
 calc_traj_dt = Ts;
 recalc_step = calc_traj_dt/Ts;
-pred_hor = 50;
+pred_hor = 20;
 discnum = 5;
 disc_step = floor(pred_hor/discnum);
 disc_dt = disc_step*Ts; % Time step between Reachability discs
 prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
-enable_shadow = 0;
-enable_disp = 1;
-make_vid = 1;
+enable_shadow = 1;
+enable_disp = 0;
+make_vid = 0;
 load_vehi_vec = 0;
 
 % === Init vehiStruct === &
@@ -76,7 +76,7 @@ for ind=1:numVehi
 
     % === Auxilliary vehi without plots for last prediction
     vehiAux_vec{ind} = vehi;
-    vehiAux_vec{ind}.min_ind = [];
+    vehiAux_vec{ind}.grd_ind = [];
     if ind == 1
         % === Define Critical Area === %
         critp_ref = [0;0;0.5];
@@ -186,43 +186,78 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
                 % 1. Use Attacker's xpred and upred
                 % 2. alph0, ysim0 from ellipsoid with lowest D_KL
                 DKL_min = Inf;
-                for ind=1:pred_hor
-                    qA = vehi_vec{1}.xpred{end,1}(1:nx,ind);
-                    qD = vehi_vec{kVehi}.xpred{end,1}(1:nx,ind);
-                    yA = vehi_vec{1}.xpred{end,1}(end,ind);
-                    yD = vehi_vec{kVehi}.xpred{end,1}(end,ind);
-                    alphA = v2m(vehi_vec{1}.xpred{end,1}(nx+(1:nx^2),ind),nx);
-                    alphD = v2m(vehi_vec{kVehi}.xpred{end,1}(nx+(1:nx^2),ind),nx);
-                    
-                    QA = ellipFromAlph(alphA,yA);
-                    [wA,WA] = ellip2R3(qA,QA);
-                    QD = ellipFromAlph(alphD,yD);
-                    [wD,WD] = ellip2R3(qD,QD);
+                qAs = vehi_vec{1}.xpred{end,1}(1:nx,:);
+                qDs = vehi_vec{kVehi}.xpred{end,1}(1:nx,:);
 
-                    DKL_curr = kullback_leibler_div(qD,QD,qA,QA);
-                    if DKL_curr<DKL_min
-                        DKL_min = DKL_curr;
-                        min_ind = ind;
-                        dist_min = norm(wA-wD);
-                        ymin = sqrt(yA)+sqrt(yD);
-                        alph0 = alphD;
-                        y0 = yD;
-                    end
-                end
-                % Only project shadow when DKL is bellow a certain threshhold
-                active_shadow = dist_min <= ymin;
-                dist_min_vec(k) = min_ind;
+                pred_dist = sqrt(sum(((qAs(1:3,:) - qDs(1:3,:)).^2),1));
+                [min_pred_dist, min_dist_ind] = min(pred_dist);
+                yA = vehi_vec{1}.xpred{end,1}(end,min_dist_ind);
+                yD = vehi_vec{kVehi}.xpred{end,1}(end,min_dist_ind);
+
+                ymin = sqrt(yA)+sqrt(yD);
+                active_shadow = min_pred_dist <= ymin;
+
                 if active_shadow
+                    alphA = v2m(vehi_vec{1}.xpred{end,1}(nx+(1:nx^2),min_dist_ind),nx);
+                    alphD = v2m(vehi_vec{kVehi}.xpred{end,1}(nx+(1:nx^2),min_dist_ind),nx);
+                    
+                    % QA = ellipFromAlph(alphA,yA);
+                    % [wA,WA] = ellip2R3(qA,QA);
+                    % QD = ellipFromAlph(alphD,yD);
+                    % [wD,WD] = ellip2R3(qD,QD);
+
                     % Some future compatibility problems here: The dynamics used SHOULD be the Attacker's, AND alph used should be compatible.
                     % Right now theres no guarantee they are compatible (this only works because they so happen to have the same dynamics)
-                    [alphs, ys] = calcParametopes(vehiAux_vec{1}.xpred{end,1}(:,pred_hor+1:end), vehiAux_vec{1}.upred{end,1}(:,pred_hor+1:end), alph0, y0, vehi_vec{1}, Ts);
-                else 
-                    alphs = repmat(m2v(eye(nx)),1,knum-pred_hor);
-                    ys = 1e-2.*ones(1,knum-pred_hor);
-                end
+                    xtrajA = vehiAux_vec{1}.xpred{end,1}(:,pred_hor+1:end);
+                    utrajA = vehiAux_vec{1}.upred{end,1}(:,pred_hor+1:end);
+                    [alphs, ys] = calcParametopes(xtrajA, utrajA, alphD, yD, vehi_vec{1}, Ts);
 
-                offset = [qD(1:3);zeros(nx-3,1)]-vehiAux_vec{1}.xpred{end,1}(1:nx,1);
-                vehiAux.xpred{end+1,1} = [vehiAux_vec{1}.xpred{end,1}(1:nx,:)+offset; [vehiAux_vec{1}.xpred{end,1}(nx+1:end,1:pred_hor), [alphs; ys]]];
+                    offset = [qDs(1:3,min_dist_ind);zeros(nx-3,1)]-vehiAux_vec{1}.xpred{end,1}(1:nx,1);
+                    vehiAux.xpred{end+1,1} = [vehiAux_vec{1}.xpred{end,1}(1:nx,:)+offset; [vehiAux_vec{1}.xpred{end,1}(nx+1:end,1:pred_hor), [alphs; ys]]];
+                else 
+                    % alphs = repmat(m2v(eye(nx)),1,knum-pred_hor);
+                    % ys = 1e-2.*ones(1,knum-pred_hor);
+                    vehiAux.xpred{end+1,1} = [];
+                end
+                
+                % for ind=1:pred_hor
+                %     qA = vehi_vec{1}.xpred{end,1}(1:nx,ind);
+                %     qD = vehi_vec{kVehi}.xpred{end,1}(1:nx,ind);
+                %     yA = vehi_vec{1}.xpred{end,1}(end,ind);
+                %     yD = vehi_vec{kVehi}.xpred{end,1}(end,ind);
+                %     alphA = v2m(vehi_vec{1}.xpred{end,1}(nx+(1:nx^2),ind),nx);
+                %     alphD = v2m(vehi_vec{kVehi}.xpred{end,1}(nx+(1:nx^2),ind),nx);
+                % 
+                %     QA = ellipFromAlph(alphA,yA);
+                %     [wA,WA] = ellip2R3(qA,QA);
+                %     QD = ellipFromAlph(alphD,yD);
+                %     [wD,WD] = ellip2R3(qD,QD);
+                % 
+                %     DKL_curr = kullback_leibler_div(qD,QD,qA,QA);
+                %     pred_dist = norm(wA-wD);
+                %     if pred_dist<dist_min
+                %         DKL_min = DKL_curr;
+                %         min_ind = ind;
+                %         dist_min = pred_dist;
+                %         ymin = sqrt(yA)+sqrt(yD);
+                %         alph0 = alphD;
+                %         y0 = yD;
+                %     end
+                % end
+                % % Only project shadow when DKL is bellow a certain threshhold
+                % active_shadow = dist_min <= ymin;
+                % dist_min_vec(k) = min_ind;
+                % if active_shadow
+                %     % Some future compatibility problems here: The dynamics used SHOULD be the Attacker's, AND alph used should be compatible.
+                %     % Right now theres no guarantee they are compatible (this only works because they so happen to have the same dynamics)
+                %     [alphs, ys] = calcParametopes(vehiAux_vec{1}.xpred{end,1}(:,pred_hor+1:end), vehiAux_vec{1}.upred{end,1}(:,pred_hor+1:end), alph0, y0, vehi_vec{1}, Ts);
+                % else 
+                %     alphs = repmat(m2v(eye(nx)),1,knum-pred_hor);
+                %     ys = 1e-2.*ones(1,knum-pred_hor);
+                % end
+                % 
+                % offset = [qD(1:3);zeros(nx-3,1)]-vehiAux_vec{1}.xpred{end,1}(1:nx,1);
+                % vehiAux.xpred{end+1,1} = [vehiAux_vec{1}.xpred{end,1}(1:nx,:)+offset; [vehiAux_vec{1}.xpred{end,1}(nx+1:end,1:pred_hor), [alphs; ys]]];
             end
             % Find prediction closest to ground
             % error = vehiAux.xpred{end,1}(1:3,:)-critp_ref;
@@ -231,12 +266,17 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
             % [min_dist, min_ind] = min(sqrt(error.^2));
             col = [];
             tol = 1e-3;
-            while isempty(col)
-                [~,col] = find(sqrt(vehiAux.xpred{end,1}(3,:).^2)<= tol);
-                tol = tol*10;
+            last_xpred = vehiAux.xpred{end,1};
+            if ~isempty(last_xpred)
+                while isempty(col)
+                    [~,col] = find(sqrt(sum(last_xpred(1:3,:).^2,1))<= tol);
+                    tol = tol*10;
+                end
+                grd_ind = col(1);
+            else
+                grd_ind = 0;
             end
-            grd_ind = col(1);
-            vehiAux.min_ind(end+1) = grd_ind;
+            vehiAux.grd_ind(end+1) = grd_ind;  
         end
         %[alph_vec, vehi.ypred{end+1,1}] = calcParametopes(vehi.xpred{end,1}, vehi.upred{end,1}, vehi, Ts);
 
@@ -280,7 +320,7 @@ hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
 if make_vid == 1
-    vid=VideoWriter('testNMPCv5_v7.mp4','MPEG-4');
+    vid=VideoWriter('testNMPCv5withdist_v7.mp4','MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frame);

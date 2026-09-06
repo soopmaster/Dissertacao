@@ -13,7 +13,7 @@ q1 = zeros(3,1);
 Q1 = eye(3);
 
 q2 = [-3;0;0];
-Q2 = 0.9.*eye(3);
+Q2 = 0.1.*eye(3);
 v2 = 2;
 
 [F1,p1,x_opt1,K1] = ellipPoints(q1,Q1,50);

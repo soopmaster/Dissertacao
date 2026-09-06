@@ -40,7 +40,6 @@ ellipsAsize = (3+3^2);
 P = SX.sym('P',x0size + ysDsize*N + ellipsAsize*N); 
 X = SX.sym('X',nx,N+1); % States over optimization problem
 DKL_DA = SX.sym('DKL',N);
-DKL_AD = SX.sym('DKL',N);
 
 g = []; % Constraints vector
 
@@ -52,8 +51,8 @@ g = [g; xk-P(1:nx)]; % Initial condition constraints
 % scale_vec = v2m(P(nx+1:nx+3*N),3); % Parametope alph
 ysD = P(x0size+(1:ysDsize*N));
 ellipsA = v2m(P(x0size + ysDsize*N+1:end),ellipsAsize);
-Obj = Jfunc(X,ellipsA,U,ysD,DKL_DA,DKL_AD,ny); % Get Cost Function
-obj = Obj.obj_DKL_AD + Obj.obj_u + Obj.obj_DKL_DA;
+Obj = Jfunc(X,ellipsA,U,ysD,DKL_DA,ny); % Get Cost Function
+obj = Obj.obj_DKL_AD + Obj.obj_u - Obj.obj_DKL_DA + Obj.obj_Ed;
 
 for k=1:N
     xk = X(:,k);
@@ -182,9 +181,8 @@ u_out = u(:,1);
 
 % Record Error/Cost!
 DKL_DA = [];
-DKL_AD = [];
-E = Jfunc(X0,[paramwA;paramWA],u0,ysD,DKL_DA,DKL_AD,ny);
-auxSt.error_track = [E.obj_DKL_DA; E.obj_DKL_AD; E.obj_u; E.unsObj_DKL_DA; E.unsObj_DKL_AD; E.unsObj_u];
+E = Jfunc(X0,[paramwA;paramWA],u0,ysD,DKL_DA,ny);
+auxSt.error_track = [E.obj_DKL_DA; E.obj_DKL_AD; E.obj_u; E.unsObj_DKL_DA; E.unsObj_DKL_AD; E.unsObj_u; E.obj_Ed; E.DKL_vec'];
 
 auxSt.X0 = v2m(full(sol.x(1:nx*(N+1))),nx); % history of solution TRAJECTORY accross horizon
 auxSt.u0 = [u(:,2:end), u(:,end)];
@@ -201,12 +199,13 @@ Qd = exp(steep*(k-N+log(KN-K0)/steep)) + K0; % starts small, goes up
 R = 0.01;
 Qm = 1; % Shape Matrix weight
 Qda = 1;
-Qad = 10;
+Qad = 100;
+Qe = 0.1;
 
-KK.Qd = Qd; KK.R = R; KK.Qm = Qm; KK.Qda = Qda; KK.Qad = Qad;
+KK.Qd = Qd; KK.R = R; KK.Qm = Qm; KK.Qda = Qda; KK.Qad = Qad; KK.Qe = Qe;
 end
 
-function [Obj] = Jfunc(X,ellipsA,U,ysD,DKL_DA,DKL_AD,ny)
+function [Obj] = Jfunc(X,ellipsA,U,ysD,DKL_DA,ny)
 % X : [xD0, xD1,...]
 % ellipsA : [wA0;vec(WA0), wA1;vec(WA1),...]
 % ysD : [yD0, yD1, ...]
@@ -219,6 +218,9 @@ function [Obj] = Jfunc(X,ellipsA,U,ysD,DKL_DA,DKL_AD,ny)
 N = size(U,2);
 nx = size(X,1);
 nu = size(U,1);
+
+DKL_AD = DKL_DA;
+Ed = DKL_DA;
 
 obj_d = 0; % distance objective function
 obj_u = 0; % u objective function
@@ -235,7 +237,7 @@ for k=1:N
     wD = xk(1:3);
     rotD = v2m(xk(7:3*3+7-1),3); % Extract Rotation Matrix of sys D
     %S = diag(ysD(:,k));
-    WD = rotD*(ysD(k)*diag([1,1,0.1]))*rotD'; % Apply scaling
+    WD = rotD*(ysD(k)*diag([1,1,sqrt(0.1)]))*rotD'; % Apply scaling
 
     KK = ctrl_gains(k,N);
     Qk = KK.Qd;
@@ -245,33 +247,41 @@ for k=1:N
     DKL_DA(k) = kullback_leibler_div(wD,WD,wA,WA);
     DKL_AD(k) = kullback_leibler_div(wA,WA,wD,WD);
     %D_KL(k) = correlation_matrix_distance(wA,WA,wD,WD)^2;
+    Ed(k) = (wD-wA)'*(wD-wA);
     
     obj_u = obj_u + uk'*Rk*uk;
     unsObj_u = unsObj_u + uk'*uk; 
     % obj_d = obj_d + (wA-wD)'*Qk*(wA-wD);
     % unsObj_d = unsObj_d + (wA-wD)'*(wA-wD);
 end
+Obj.DKL_vec = DKL_AD;
 % Qm = KK.Qm;
 Qad = KK.Qad;
 Qda = KK.Qda;
+Qe = KK.Qe;
 %LSE_coef = -4;
 %LSE_coef = -0.1;
-LSE_coef = -0.5;
+LSE_coef = -0.1;
 %LSE_coef = -20;
-unsObj_DKL_DA = -LSE(LSE_coef,DKL_DA);
+unsObj_DKL_DA = LSE(LSE_coef,DKL_DA);
 obj_DKL_DA = Qda*unsObj_DKL_DA;
 
-unsObj_DKL_AD = LSE(LSE_coef,DKL_AD);
+unsObj_DKL_AD = LSE(LSE_coef,DKL_AD); % Subtract what tends to be the largest value
 obj_DKL_AD = Qad*unsObj_DKL_AD;
+
+unsObj_Ed = LSE(LSE_coef,Ed);
+obj_Ed = Qe*unsObj_Ed;
 
 % Obj.obj_d = obj_d;
 Obj.obj_u = obj_u;
 Obj.obj_DKL_DA = obj_DKL_DA;
 Obj.obj_DKL_AD = obj_DKL_AD;
+Obj.obj_Ed = obj_Ed;
 
 % Obj.unsObj_d = unsObj_d;
 Obj.unsObj_u = unsObj_u;
 Obj.unsObj_DKL_DA = unsObj_DKL_DA;
 Obj.unsObj_DKL_AD = unsObj_DKL_AD;
+Obj.unsObj_Ed = unsObj_Ed;
 
 end
