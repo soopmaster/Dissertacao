@@ -46,8 +46,8 @@ make_vid = 1;
 load_vehi_vec = 0;
 
 % === Init vehiStruct === &
-if load_vehi_vec && exist('prmtpV7_data.mat') 
-    load prmtpV7_data.mat;
+if load_vehi_vec && exist('prmtpV8_data.mat') 
+    load prmtpV8_data.mat;
 else
     vehi_vec = init_all_vehi_local(Ts,pred_hor); % Cell vec with vehiSimStruct
     vehiAux_vec = vehi_vec;
@@ -105,36 +105,6 @@ end
 
 %vehiPred = vehi_vec{1}; % Auxilliary vehi for prediction
 
-% % === Start Figure === %
-% fig=figure('WindowState','maximized');
-% % ax3D = subplot(2,2,[1 3]);
-% % axTop = subplot(2,2,2);
-% % axSide = subplot(2,2,4);
-% % axes(ax3D)
-% hold on;
-% grid on
-% view(3)
-% [title_3D,subtitle_3D] = title('Adversary Two Drone Sim', ...
-%     't = 0 s','Interpreter','latex');
-% xlabel('$x$','Interpreter','latex');
-% ylabel('$y$','Interpreter','latex');
-% zlabel('$z$','Interpreter','latex');
-% for ind=1:numVehi
-%     pts_ref = vehi_vec{ind}.pts_ref{1};
-% 
-%     vehiAux_vec{ind}.prmtpShadow = {}; % Parametope Shadow patch
-%     vehiAux_vec{ind}.prmtpPatch = {}; % Parametope Shadow patch
-%     vehi_vec{ind}.prmtpPatch = {};
-%     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
-%     %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
-%     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
-%     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
-% end
-% axis equal
-% axis manual
-% % ac = get(ax3D, 'Children');   %no hidden objects
-% % copyobj( ac, axTop );
-% % copyobj( ac, axSide );
 %%
 % === Simulation === %
 telapse_total = tic;
@@ -234,29 +204,6 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
             end
             vehiAux.grd_ind(end+1) = grd_ind;  
         end
-        %[alph_vec, vehi.ypred{end+1,1}] = calcParametopes(vehi.xpred{end,1}, vehi.upred{end,1}, vehi, Ts);
-
-        % % === Update Plot === %
-        % plotBodyFunc = vehiSt.plotBodyFunc; 
-        % vehi.bodyPlot = plotBodyFunc(vehi.x(:,k), vehi.bodyPlot);
-        % addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
-        % active_shadow = enable_shadow && (vehiAux.grd_ind(end) ~= 0);
-        % if enable_shadow && active_shadow
-        %         vehiAux.prmtpShadow = plotParametope(vehiAux.xpred{end,1}(end,vehiAux.grd_ind(end)),vehiAux.xpred{end,1}(nx+1:end-1,vehiAux.grd_ind(end)),vehiAux.xpred{end,1}(1:nx,vehiAux.grd_ind(end)),nx,vehiAux.ops,vehiAux.prmtpShadow,2);
-        % end
-        % if enable_disp
-        %     vehi.prmtpPatch = plotParametope(vehi.xpred{end,1}(end,prmtp_ind),vehi.xpred{end,1}(nx+1:end-1,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch,3);
-        %     if enable_shadow && kVehi~=1 && active_shadow
-        %         shadow_ind = [prmtp_ind(end):disc_step:vehiAux.grd_ind(end)];
-        %         vehiAux.prmtpPatch = plotParametope(vehiAux.xpred{end,1}(end,shadow_ind),vehiAux.xpred{end,1}(nx+1:end-1,shadow_ind),vehiAux.xpred{end,1}(1:nx,shadow_ind),nx,vehiAux.ops,vehiAux.prmtpPatch,3);
-        %     end
-        %     %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
-        %     %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
-        % end
-        % if k==1
-        %     axis equal
-        %     axis manual
-        % end
 
         vehi_vec{kVehi} = vehi;
         vehiAux_vec{kVehi} = vehiAux;
@@ -266,11 +213,6 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
     disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
     disp('----------------');
     disp(' ');
-    % drawnow;
-    % pause(Ts);
-    % if make_vid == 1
-    %     frame(k) = getframe(fig);
-    % end
     k = k+1;
 end
 % hold off;
@@ -312,7 +254,7 @@ for kVehi=1:numVehi
     vehi_save{kVehi}.error_track = vehi_vec{kVehi}.error_track;
     vehi_save{kVehi}.pts_ref = vehi_vec{kVehi}.pts_ref;
 end
-save prmtpV7_data.mat vehi_save % Save sim results (probably can't support casadi solver)
+save prmtpV8_data.mat vehi_save % Save sim results (probably can't support casadi solver)
 
 if enable_render
     render(vehi_vec,vehiAux_vec,prmtp_ind,disc_step,Ts,enable_shadow,enable_disp,make_vid);
@@ -627,7 +569,7 @@ for ind=1:size(vehi_vec,2)
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
 axis equal
-% axis manual
+axis manual
 % ac = get(ax3D, 'Children');   %no hidden objects
 % copyobj( ac, axTop );
 % copyobj( ac, axSide );
@@ -657,7 +599,7 @@ while k<knum
         if enable_disp
             vehi.prmtpPatch = plotParametope(vehi.xpred{k,1}(end,prmtp_ind),vehi.xpred{k,1}(nx+1:end-1,prmtp_ind),vehi.xpred{k,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch,3);
             if enable_shadow && kVehi~=1 && active_shadow
-                shadow_ind = [prmtp_ind(end):disc_step:vehiAux.grd_ind(end)];
+                shadow_ind = [prmtp_ind(end):disc_step:vehiAux.grd_ind(k)];
                 vehiAux.prmtpPatch = plotParametope(vehiAux.xpred{k,1}(end,shadow_ind),vehiAux.xpred{k,1}(nx+1:end-1,shadow_ind),vehiAux.xpred{k,1}(1:nx,shadow_ind),nx,vehiAux.ops,vehiAux.prmtpPatch,3);
             end
             %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
@@ -681,7 +623,7 @@ end
 hold off;
 
 if make_vid == 1
-    vid=VideoWriter('testNMPCv5withdist_v8.mp4','MPEG-4');
+    vid=VideoWriter('testNMPCv5withdist_with_shadow_parametope_v8.mp4','MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frame);
