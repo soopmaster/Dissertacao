@@ -39,10 +39,14 @@ disc_dt = disc_step*Ts; % Time step between Reachability discs
 prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
+% Critical Area Ellipse
+Ecrit.q = [0;0];
+Ecrit.Q = eye(2);
+
 enable_shadow = 1;
 enable_disp = 1;
 enable_render = 1;
-make_vid = 1;
+make_vid = 0;
 load_vehi_vec = 0;
 
 % === Init vehiStruct === &
@@ -78,9 +82,10 @@ for ind=1:numVehi
     % === Auxilliary vehi without plots for last prediction
     vehiAux_vec{ind} = vehi;
     vehiAux_vec{ind}.grd_ind = [];
+    vehiAux_vec{ind}.grdEllip = {}; % Cell_vec with ground ellipse 
     if ind == 1
         % === Define Critical Area === %
-        critp_ref = [0;0;0.5];
+        critp_ref = [Ecrit.q;0.5];
         % critv_ref = [-5;5;-5];
         critv_ref = [0;0;0];
         pts_ref = [critp_ref; critv_ref; vehi.vehiSt.x0(3*2+1:end)];
@@ -95,6 +100,7 @@ for ind=1:numVehi
         vehiAux_vec{ind}.pts_ref{1} = repmat(pts_ref(:,1),1,pred_hor);
         vehiAux_vec{ind}.ops.plot.edgecolor = 'g'; vehiAux_vec{ind}.ops.plot.wirestyle = '-'; vehiAux_vec{ind}.ops.plot.linewidth = 0.5;
 
+        vehiAux_vec{ind}.safeArea = [];
         %vehi.pts_ref = repmat(vehi.vehiSt.x0,1,pred_hor+1);
     end
 
@@ -202,7 +208,31 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
             else
                 grd_ind = 0;
             end
-            vehiAux.grd_ind(end+1) = grd_ind;  
+            vehiAux.grd_ind(end+1) = grd_ind;
+
+            if vehiAux.grd_ind(end)~=0
+                % Get Safeguarded Ground Area
+                xSafe = vehiAux.xpred{end,1}(1:nx,vehiAux.grd_ind(end));
+                alphSafe = vehiAux.xpred{end,1}(nx+(1:nx^2),vehiAux.grd_ind(end));
+                ySafe = vehiAux.xpred{end,1}(end,vehiAux.grd_ind(end));
+
+                Qsafe = ellipFromAlph(alphSafe,ySafe);
+
+                [wSafe,Wsafe] = ellip2R3(xSafe,Qsafe);
+                [wSafe,Wsafe] = ellipIntersectHyp(wSafe,Wsafe,[0;0;1],0);
+            else
+                wSafe = [0;0];
+                Wsafe = zeros(2);
+            end
+    
+            if kVehi~=1
+                % Intersect Safe Area with Critical Area
+                [wSafe,Wsafe] = ellipIntersectEllip(wSafe,Wsafe,Ecrit.q,Ecrit.Q);
+                vehiAux.safeArea(end+1) = ellipVol(Wsafe);
+            end
+            E.q = wSafe;
+            E.Q = Wsafe;
+            vehiAux.grdEllip{end+1,1} = E;
         end
 
         vehi_vec{kVehi} = vehi;
@@ -292,6 +322,7 @@ ops.plot.shade = 0.15;
 ops.plot.linewidth=0.05;
 ops.plot.wirestyle=':';
 ops.plot.edgecolor='#EB4B2D';
+ops.plot.Rspacename = '$\mathcal{R}_A$';
 %ops.plot.edgecolor=[235 75 45];
 vehi_vec{1}.ops = ops;
 
@@ -300,6 +331,7 @@ ops.plot.shade = 0.15;
 ops.plot.linewidth=0.05;
 ops.plot.wirestyle=':';
 ops.plot.edgecolor='#11F4BF';
+ops.plot.Rspacename = '$\mathcal{R}_D$';
 %ops.plot.edgecolor=[17 244 191];
 vehi_vec{2}.ops = ops;
 
@@ -378,7 +410,7 @@ for k=1:size(x,2)-1
     
     % Calculate c just once outside of runge-kutta
     % Propagate y with parametope method
-    [eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfxo,alph_vec(:,k),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
+    %[eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfxo,alph_vec(:,k),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
     % Propagate y with scaling method
     % ratio = xmax./x(1:nx,k);
     % parametope_c = max(ratio(1:3));
@@ -443,7 +475,7 @@ for ind=1:size(u,2)
 
     % Calculate c just once outside of runge-kutta
     % Propagate y with parametope method
-    [eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfx0,alphs(:,ind),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
+    %[eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfx0,alphs(:,ind),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
     % Propagate y with scaling method
     % ratio = xmax./x(1:nx,k);
     % parametope_c = max(ratio(1:3));
@@ -557,23 +589,37 @@ view(3)
 xlabel('$x$','Interpreter','latex');
 ylabel('$y$','Interpreter','latex');
 zlabel('$z$','Interpreter','latex');
+handle2display = [];
+name2display = {};
 for ind=1:size(vehi_vec,2)
     pts_ref = vehi_vec{ind}.pts_ref{1};
 
     vehiAux_vec{ind}.prmtpShadow = {}; % Parametope Shadow patch
     vehiAux_vec{ind}.prmtpPatch = {}; % Parametope Shadow patch
     vehi_vec{ind}.prmtpPatch = {};
+    % vehi_vec{ind}.RprmtpName = patch(NaN,NaN,NaN,'EdgeColor',vehi_vec{ind}.ops.plot.edgecolor, ...
+    %     'FaceColor', vehi_vec{ind}.ops.plot.edgecolor,'DisplayName',vehi_vec{ind}.ops.plot.Rspacename);
+    handle2display(end+1) = patch(NaN,NaN,NaN,'EdgeColor',vehi_vec{ind}.ops.plot.edgecolor, ...
+        'FaceColor', vehi_vec{ind}.ops.plot.edgecolor, ...
+        'LineStyle',vehi_vec{ind}.ops.plot.wirestyle, ...
+        'LineWidth',vehi_vec{ind}.ops.plot.linewidth, ...
+        'Facealpha',vehi_vec{ind}.ops.plot.shade,'DisplayName',vehi_vec{ind}.ops.plot.Rspacename);
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
     %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
+    % vehi_vec{ind}.bodyName = 'Drone Body';
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
+
+    %handle2display = [handle2display, RprmtpName(ind)];
+    %name2display{1,end+1} = vehi_vec{ind}.bodyName;
+    %name2display{1,end+1} = vehi_vec{ind}.ops.plot.Rspacename;
 end
 axis equal
 axis manual
 % ac = get(ax3D, 'Children');   %no hidden objects
 % copyobj( ac, axTop );
 % copyobj( ac, axSide );
-
+%legend(handle2display,'Interpreter','latex');
 knum = length(vehi_vec{1}.xpred);
 k=1;
 while k<knum 
@@ -612,7 +658,7 @@ while k<knum
         vehi_vec{kVehi} = vehi;
         vehiAux_vec{kVehi} = vehiAux;
     end
-
+    legend(handle2display,'Interpreter','latex');
     drawnow;
     pause(Ts);
     if make_vid == 1
