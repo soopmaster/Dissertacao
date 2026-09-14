@@ -26,28 +26,57 @@ clearvars;
 %   .ops
 
 % === Sim Settings === %
-simT = 3; % Sim time seconds
-Ts = 0.01;
-knum = simT/Ts;
+sim.simT = 3; % Sim time seconds
+sim.Ts = 0.01;
+sim.knum = sim.simT/sim.Ts;
 %calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
-calc_traj_dt = Ts;
-recalc_step = calc_traj_dt/Ts;
-pred_hor = 20;
-discnum = 5;
-disc_step = floor(pred_hor/discnum);
-disc_dt = disc_step*Ts; % Time step between Reachability discs
-prmtp_ind = [1,disc_step:disc_step:pred_hor];
-discnum = length(prmtp_ind);
+sim.calc_traj_dt = sim.Ts;
+sim.recalc_step = sim.calc_traj_dt/sim.Ts;
+sim.pred_hor = 20;
+sim.discnum = 5;
+sim.disc_step = floor(sim.pred_hor/sim.discnum);
+sim.disc_dt = sim.disc_step*sim.Ts; % Time step between Reachability discs
+sim.prmtp_ind = [1,sim.disc_step:sim.disc_step:sim.pred_hor];
+sim.discnum = length(sim.prmtp_ind);
 
 % Critical Area Ellipse
-Ecrit.q = [0;0];
-Ecrit.Q = eye(2);
+sim.Ecrit.q = [0;0;0];
+sim.Ecrit.Q = eye(3);
+ops.plot.shade = 0.5;
+ops.plot.linewidth=0.5;
+ops.plot.wirestyle='-';
+ops.plot.edgecolor='b';
+ops.plot.Rspacename = '$\mathcal{G}_C$';
+%ops.plot.edgecolor=[235 75 45];
+sim.Ecrit.ops = ops;
 
-enable_shadow = 1;
-enable_disp = 1;
-enable_render = 1;
-make_vid = 0;
-load_vehi_vec = 0;
+sim.enable_shadow = 1;
+sim.enable_disp = 0;
+sim.enable_render = 1;
+sim.make_vid = 0;
+sim.load_vehi_vec = 0;
+
+simT = sim.simT; % Sim time seconds
+Ts = sim.Ts;
+knum = sim.knum;
+%calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
+calc_traj_dt = sim.calc_traj_dt;
+recalc_step = sim.recalc_step;
+pred_hor  = sim.pred_hor;
+discnum = sim.discnum;
+disc_step = sim.disc_step;
+disc_dt = sim.disc_dt; % Time step between Reachability discs
+prmtp_ind = sim.prmtp_ind;
+discnum = sim.discnum;
+
+% Critical Area Ellipse
+Ecrit = sim.Ecrit;
+
+enable_shadow = sim.enable_shadow;
+enable_disp = sim.enable_disp;
+enable_render = sim.enable_render;
+make_vid = sim.make_vid;
+load_vehi_vec = sim.load_vehi_vec;
 
 % === Init vehiStruct === &
 if load_vehi_vec && exist('prmtpV8_data.mat') 
@@ -85,7 +114,7 @@ for ind=1:numVehi
     vehiAux_vec{ind}.grdEllip = {}; % Cell_vec with ground ellipse 
     if ind == 1
         % === Define Critical Area === %
-        critp_ref = [Ecrit.q;0.5];
+        critp_ref = [Ecrit.q(1:2);0.5];
         % critv_ref = [-5;5;-5];
         critv_ref = [0;0;0];
         pts_ref = [critp_ref; critv_ref; vehi.vehiSt.x0(3*2+1:end)];
@@ -93,12 +122,14 @@ for ind=1:numVehi
 
         vehiAux_vec{ind}.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,knum)];
         vehiAux_vec{ind}.ops.plot.edgecolor = 'r'; vehiAux_vec{ind}.ops.plot.wirestyle = '-'; vehiAux_vec{ind}.ops.plot.linewidth = 0.5;
+        vehiAux_vec{ind}.ops.plot.Rspacename = '$\mathcal{G}_A$';
     else
         pts_ref = repmat([vehi_vec{1}.vehiSt.x0;m2v(vehi_vec{1}.vehiSt.alph0);vehi_vec{1}.vehiSt.ysim0],1,pred_hor);
         vehi.pts_ref{1} = pts_ref;
 
         vehiAux_vec{ind}.pts_ref{1} = repmat(pts_ref(:,1),1,pred_hor);
         vehiAux_vec{ind}.ops.plot.edgecolor = 'g'; vehiAux_vec{ind}.ops.plot.wirestyle = '-'; vehiAux_vec{ind}.ops.plot.linewidth = 0.5;
+        vehiAux_vec{ind}.ops.plot.Rspacename = '$\mathcal{S}$';
 
         vehiAux_vec{ind}.safeArea = [];
         %vehi.pts_ref = repmat(vehi.vehiSt.x0,1,pred_hor+1);
@@ -213,7 +244,7 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
             if vehiAux.grd_ind(end)~=0
                 % Get Safeguarded Ground Area
                 xSafe = vehiAux.xpred{end,1}(1:nx,vehiAux.grd_ind(end));
-                alphSafe = vehiAux.xpred{end,1}(nx+(1:nx^2),vehiAux.grd_ind(end));
+                alphSafe = v2m(vehiAux.xpred{end,1}(nx+(1:nx^2),vehiAux.grd_ind(end)),nx);
                 ySafe = vehiAux.xpred{end,1}(end,vehiAux.grd_ind(end));
 
                 Qsafe = ellipFromAlph(alphSafe,ySafe);
@@ -227,7 +258,7 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
     
             if kVehi~=1
                 % Intersect Safe Area with Critical Area
-                [wSafe,Wsafe] = ellipIntersectEllip(wSafe,Wsafe,Ecrit.q,Ecrit.Q);
+                [wSafe,Wsafe] = ellipIntersectEllip(wSafe,Wsafe,Ecrit.q(1:2),Ecrit.Q(1:2,1:2));
                 vehiAux.safeArea(end+1) = ellipVol(Wsafe);
             end
             E.q = wSafe;
@@ -287,7 +318,7 @@ end
 save prmtpV8_data.mat vehi_save % Save sim results (probably can't support casadi solver)
 
 if enable_render
-    render(vehi_vec,vehiAux_vec,prmtp_ind,disc_step,Ts,enable_shadow,enable_disp,make_vid);
+    render(vehi_vec,vehiAux_vec,sim);
 end
 
 function vehi_vec = init_all_vehi_local(Ts,pred_hor)
@@ -309,6 +340,7 @@ vehi_vec{2}.vehiSt = init_QuadDroneNMPC(x0{2},Ts);
 % vehi_vec{1}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{1}.vehiSt);
 
 vehi_vec{1}.ctrlSt = init_MellingerCtrl(pred_hor,2,vehi_vec{1}.vehiSt);
+% vehi_vec{1}.ctrlSt = init_MellingerCtrl_v3(pred_hor,Ts,vehi_vec{1}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_NMPCctrl_v2(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 % vehi_vec{2}.ctrlSt = init_NMPCctrl_v4(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 vehi_vec{2}.ctrlSt = init_NMPCctrl_v5(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
@@ -573,7 +605,14 @@ for k=1:size(p_vec,2)
 end
 end
 
-function render(vehi_vec,vehiAux_vec,prmtp_ind,disc_step,Ts,enable_shadow,enable_disp,make_vid)
+function render(vehi_vec,vehiAux_vec,sim)
+prmtp_ind = sim.prmtp_ind;
+disc_step = sim.disc_step;
+Ts = sim.Ts;
+enable_shadow = sim.enable_shadow;
+enable_disp = sim.enable_disp;
+make_vid = sim.make_vid;
+Ecrit = sim.Ecrit;
 
 % === Start Figure === %
 fig=figure('WindowState','maximized');
@@ -591,6 +630,12 @@ ylabel('$y$','Interpreter','latex');
 zlabel('$z$','Interpreter','latex');
 handle2display = [];
 name2display = {};
+
+Ecritpatch = plotParametope(1,Ecrit.Q,Ecrit.q,3,Ecrit.ops,{},2);
+Ecritpatch = Ecritpatch{1};
+Ecritpatch.DisplayName = Ecrit.ops.plot.Rspacename;
+handle2display(end+1) = Ecritpatch;
+
 for ind=1:size(vehi_vec,2)
     pts_ref = vehi_vec{ind}.pts_ref{1};
 
@@ -604,6 +649,12 @@ for ind=1:size(vehi_vec,2)
         'LineStyle',vehi_vec{ind}.ops.plot.wirestyle, ...
         'LineWidth',vehi_vec{ind}.ops.plot.linewidth, ...
         'Facealpha',vehi_vec{ind}.ops.plot.shade,'DisplayName',vehi_vec{ind}.ops.plot.Rspacename);
+    handle2display(end+1) = patch(NaN,NaN,NaN,'EdgeColor',vehiAux_vec{ind}.ops.plot.edgecolor, ...
+        'FaceColor', vehiAux_vec{ind}.ops.plot.edgecolor, ...
+        'LineStyle',vehiAux_vec{ind}.ops.plot.wirestyle, ...
+        'LineWidth',vehiAux_vec{ind}.ops.plot.linewidth, ...
+        'Facealpha',vehiAux_vec{ind}.ops.plot.shade,'DisplayName',vehiAux_vec{ind}.ops.plot.Rspacename);
+
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
     %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
@@ -644,7 +695,7 @@ while k<knum
         end
         if enable_disp
             vehi.prmtpPatch = plotParametope(vehi.xpred{k,1}(end,prmtp_ind),vehi.xpred{k,1}(nx+1:end-1,prmtp_ind),vehi.xpred{k,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch,3);
-            if enable_shadow && kVehi~=1 && active_shadow
+            if 0&&enable_shadow && kVehi~=1 && active_shadow
                 shadow_ind = [prmtp_ind(end):disc_step:vehiAux.grd_ind(k)];
                 vehiAux.prmtpPatch = plotParametope(vehiAux.xpred{k,1}(end,shadow_ind),vehiAux.xpred{k,1}(nx+1:end-1,shadow_ind),vehiAux.xpred{k,1}(1:nx,shadow_ind),nx,vehiAux.ops,vehiAux.prmtpPatch,3);
             end
