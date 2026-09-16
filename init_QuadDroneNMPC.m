@@ -143,7 +143,7 @@ Df = jacobian(dxsym, xsym);
 
 % === Bounds of state and input variables == %
 % Fmax = 20;
-Fmax = 20;
+Fmax = 30;
 vehiStruct.Fmax = Fmax;
 Fmin = 0.0001;
 vehiStruct.Fmin = Fmin;
@@ -153,7 +153,7 @@ varmin = [-delta_p; -delta_v; -0.*ones(9,1); -0.*ones(3,1)];
 varmax = [delta_p; delta_v; 0.*ones(9,1); 0.*ones(3,1)];
 varbounds = [varmin, varmax];
 %tauBmax = 0.0007*pi;
-tauBmax = pi;
+tauBmax = 2*pi;
 % tauBmax = 50;
 vehiStruct.tauBmax = tauBmax;
 ubounds_max = [Fmax; tauBmax.*ones(3,1)];

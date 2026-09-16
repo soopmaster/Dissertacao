@@ -20,12 +20,15 @@ P = SX.sym('P',3*4+3+1,1); % parameters which include x0 and reference [pD(t0);v
 
 W = v2m(X(1:3*5),3);
 tf = X(end);
+td = X(end); % delta t
 p0 = P(1:3);
 v0 = P(4:6);
 a0 = P(7:9);
 j0 = P(10:12);
 t0 = P(13);
 pf = P(4*3+1+1:end); % Final point
+amax = 10; % max acceleration
+td_min = (1/amax)*(-norm(v0)+sqrt(norm(v0)^2-2*amax*(norm(p0-pf)))); % Minimum td possible for maximum acceleration
 
 %C = [zeros(1,7);eye(7)];
 %TN = dpolyN((N-1)*Ts,8,0);
@@ -33,19 +36,27 @@ pf = P(4*3+1+1:end); % Final point
 %Tf = polyN(tf*Ts,7);
 
 % Equality Constraints vector
-g = [W*dpolyN(t0,5,0)-p0;
-     W*dpolyN(tf,5,0)-pf;
-     W*dpolyN(t0,5,1)-v0;
-     W*dpolyN(t0,5,2)-a0;
-     W*dpolyN(t0,5,3)-j0; % Initial condition constraints
-     tf-t0]; % Inequality Constraint
+g = [W*dpolyN(0,5,0)-p0;
+     W*dpolyN(td,5,0)-pf;
+     W*dpolyN(0,5,1)-v0;
+     W*dpolyN(0,5,2)-a0;
+     W*dpolyN(0,5,3)-j0; % Initial condition constraints
+    td-td_min]; % Inequality Constraint (dt > td_min)
+
+% % Equality Constraints vector
+% g = [W*dpolyN(t0,5,0)-p0;
+%      W*dpolyN(tf,5,0)-pf;
+%      W*dpolyN(t0,5,1)-v0;
+%      W*dpolyN(t0,5,2)-a0;
+%      W*dpolyN(t0,5,3)-j0; % Initial condition constraints
+%     tf-t0]; % Inequality Constraint
 %g = [g; W*N-Y*T0]; % Final condition constraints
 %g = tf-t0; % Inequality Constraint
 Q = eye(3);
-R = 0.1;
-obj = jk(p0,pf,v0,a0,j0,t0,W,tf,Q,R);
+R = 0.00001;
+obj = jk(p0,pf,v0,a0,j0,t0,W,td,Q,R);
 % make the decision vars one collumn vector
-OPT_variables = [m2v(W);tf];
+OPT_variables = [m2v(W);td];
 
 nlp_prob = struct('f',obj,'x',OPT_variables, 'g',g,'p',P);
 opts = struct;
@@ -67,17 +78,17 @@ args = struct;
 % Equality Constraints
 args.lbg(1:length(g)-1,1) = 0;
 args.ubg(1:length(g)-1,1) = 0;
-% InEquality Constraints (tf-ti>0)
-args.lbg(end+1,1) = 0;
-args.ubg(end+1,1) = Inf;
+% InEquality Constraints (td-td_min(amax)>0)
+args.lbg(length(g),1) = 0;
+args.ubg(length(g),1) = Inf;
 
 % States' bounds (-inf <= W <= +inf; 0 <= tf <= N*Ts)
 % -inf <= W <= +inf
-%args.lbx(1:3*8,1) = -inf;
-%args.ubx(1:3*8,1) = inf;
-% % 0 <= tf <= N*Ts
-% args.lbx(3*8+1,1) = 0;
-% args.ubx(3*8+1,1) = N*Ts;
+% args.lbx(1:3*5,1) = -inf;
+% args.ubx(1:3*5,1) = inf;
+% % % 0 <= tf <= N*Ts
+% args.lbx(3*5+1,1) = 0;
+% args.ubx(3*5+1,1) = N*Ts;
 
 % === Initialize Auxiliary variables for mellinger controller === %
 K_val = 1;
@@ -106,6 +117,8 @@ function [u, auxSt] = mellinger_v3(x0,xs,auxSt,pred_hor,vehi,solver,args,Ts)
 % xs : set of A predictions
 %nx = vehi.nx;
 
+pred_hor = size(xs,2)-1;
+
 % Path Planning - Generate 5th order trajectory between p0 and pf
 t0 = auxSt.t0;
 %tf0 = auxSt.tf0;
@@ -117,8 +130,9 @@ pf = xs(1:3,end);
 p0 = x0(1:3);
 
 args.p = [p0; v0; a0; j0; t0; pf]; % set values of parameter vector
-args.x0 = [m2v(W0);t0]; % init value of optimization variables
-[Waux,tf] = solverPolyTraj(solver,args);
+args.x0 = [m2v(W0);100]; % init value of optimization variables
+[Waux,td] = solverPolyTraj(solver,args);
+tf = t0 + td;
 
 % Sample 3 points from trajectory
 t1 = t0 + (tf-t0)/4; t2 = t0 + 2*(tf-t0)/4; t3 = t0 + 3*(tf-t0)/4;
@@ -157,12 +171,12 @@ function tvec = tdim(t,dim,polyOrder,dorder)
 tvec = repmat(dpolyN(t,polyOrder,dorder),dim,1);
 end
 
-function [W,tf] = solverPolyTraj(solver,args)
+function [W,td] = solverPolyTraj(solver,args)
 % sol = solver('x0',args.x0,'lbx',args.lbx,'ubx',args.ubx,'lbg',args.lbg,'ubg',args.ubg,'p',args.p);
 sol = solver('x0',args.x0,'lbg',args.lbg,'ubg',args.ubg,'p',args.p);
 
 W = v2m(full(sol.x(1:3*5)),3);
-tf = full(sol.x(end));
+td = full(sol.x(end));
 end
 
 function Y = minPolyTraj(xs,t0,Ts)
@@ -176,7 +190,7 @@ Y = trajectory3Dv3(t0+Ts.*t,Ts,xs(1:3,(t+1)));
 Y = Y{1};
 end
 
-function cost = jk(p0,pf,v0,a0,j0,t0,W,tf,Q,R)
+function cost = jk(p0,pf,v0,a0,j0,t0,W,td,Q,R)
 % J(W,tf) = ||P-W*T||^2*Q + tf^2*R
 % P = [p0; pf; v0; a0; j0]
 % T = [dpolyN(t0,5,0); dpolyN(tf,5,0); dpolyN(t0,5,1); dpolyN(t0,5,2); dpolyN(t0,5,3)] 
@@ -184,10 +198,10 @@ function cost = jk(p0,pf,v0,a0,j0,t0,W,tf,Q,R)
 % P = [p0; pf; v0; a0; j0];
 P = [p0];
 % T = [tdim(t0,1,5,0); tdim(tf,1,5,0); tdim(t0,1,5,1); tdim(t0,1,5,2); tdim(t0,1,5,3)];
-T = [tdim(t0,1,5,0)];
+T = [tdim(0,1,5,0)];
 %Wk = kron(eye(5),W);
 
-cost = (P-W*T)'*Q*(P-W*T) + tf^2*R;
+cost = (P-W*T)'*Q*(P-W*T) + td^2*R;
 end
 
 function [u,rNxt] = trajNxtK(x0,W,tnxt,vehi,auxSt)

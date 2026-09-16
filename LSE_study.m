@@ -12,7 +12,7 @@ maxDKL = max(DKL,[],'all');
 minDKL = min(DKL,[],'all');
 
 DKL_min = min(DKL,[],1);
-c = -0.1;
+c = -0.01;
 for k=1:size(DKL,2)
     DKL_LSE(k) = LSE(c,DKL(:,k)');
 end

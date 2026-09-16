@@ -56,8 +56,8 @@ for ind=1:numVehi
     if ind == 1
         % === Define Critical Area === %
         critp_ref = [0;0;0];
-        % critv_ref = [-5;5;-5];
-        critv_ref = [0;0;0];
+        critv_ref = [-5;5;-5];
+        % critv_ref = [0;0;0];
         pts_ref = [critp_ref; critv_ref; vehi.vehiSt.x0(3*2+1:end)];
         vehi.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,pred_hor)];
     else
@@ -78,7 +78,7 @@ for ind=1:numVehi
     vehi.xpred = cell(0,0);
     vehi.upred = cell(0,0);
     
-    vehi.error_track = [];
+    %vehi.error_track = [];
 
     % Define window bounds
 
@@ -111,6 +111,7 @@ for ind=1:numVehi
     pts_ref = vehi_vec{ind}.pts_ref{1};
     vehi_vec{ind}.prmtpPatch = {};
     vehi_vec{ind}.monteCarloPlot = {};
+    
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
     %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
@@ -128,7 +129,8 @@ axis equal
 telapse_total = tic;
 k=1;
 % norm(vehi_vec{1}.x(1:3,k)-critp_ref)>=0.1
-while k<knum && 1
+stop = 0;
+while k<knum && ~stop
     % Update subtitle
     subtitle_3D.String = ['k = ',num2str(k)];
     disp(['=== Computing ', num2str(k), '/', num2str(knum), ' interval ===']);
@@ -150,24 +152,32 @@ while k<knum && 1
 
         vehi.x(:,k+1) = vehi.xpred{end,1}(1:nx,2);
         vehi.u(:,k) = vehi.upred{end,1}(:,1);
-        vehi.error_track(:,k) = vehi.ctrlSt.auxSt.error_track;
+        %vehi.error_track(:,k) = vehi.ctrlSt.auxSt.error_track;
+        stop = norm(vehi_vec{1}.x(1:3,k)-critp_ref)<=0.1;
 
         if enable_shadow
         % Compute Final parametope
             [xpred_aux, upred_aux, auxStaux] = calcNxt(vehiAux.x(:,k), vehiAux.pts_ref{end,1}, vehiAux, Ts, knum);
             vehiAux.xpred{end+1,1} = xpred_aux(:,1:knum);
             vehiAux.upred{end+1,1} = upred_aux(:,1:knum);
-            vehiAux.ctrlSt.auxSt = auxStaux;
-    
-            % Find prediction closest to critp
-            error = vehiAux.xpred{end,1}(1:3,:)-critp_ref;
-            %[min_dist, min_ind] = min(sum(error.^2,1).^(1/2));
-            [~,col] = find(sum(error.^2,1).^(1/2) <= 5e-1);
-            min_ind = col(1);
-    
             vehiAux.x(:,k+1) = vehiAux.xpred{end,1}(1:nx,2);
             vehiAux.u(:,k) = vehiAux.upred{end,1}(:,1);
-            vehiAux.error_track(:,k) = vehiAux.ctrlSt.auxSt.error_track;
+            %vehiAux.error_track(:,k) = vehiAux.ctrlSt.auxSt.error_track;
+            vehiAux.ctrlSt.auxSt = auxStaux;
+
+             % Find prediction closest to ground
+            col = [];
+            tol = 1e-3;
+            last_xpred = vehiAux.xpred{end,1};
+            if ~isempty(last_xpred)
+                while isempty(col)
+                    [~,col] = find(sqrt(sum(last_xpred(1:3,:).^2,1))<= tol);
+                    tol = tol*10;
+                end
+                grd_ind = col(1);
+            else
+                grd_ind = 0;
+            end
         end
 
         %[alph_vec, vehi.ypred{end+1,1}] = calcParametopes(vehi.xpred{end,1}, vehi.upred{end,1}, vehi, Ts);
@@ -182,7 +192,7 @@ while k<knum && 1
         vehi.bodyPlot = plotBodyFunc(vehi.x(:,k), vehi.bodyPlot);
         %addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
         if enable_shadow
-                vehiAux.prmtpShadow = plotParametope(vehiAux.xpred{end,1}(end,min_ind),vehiAux.xpred{end,1}(nx+1:end-1,min_ind),vehiAux.xpred{end,1}(1:nx,min_ind),nx,vehiAux.ops,vehiAux.prmtpShadow,2);
+                vehiAux.prmtpShadow = plotParametope(vehiAux.xpred{end,1}(end,grd_ind),vehiAux.xpred{end,1}(nx+1:end-1,grd_ind),vehiAux.xpred{end,1}(1:nx,grd_ind),nx,vehiAux.ops,vehiAux.prmtpShadow,2);
         end
         if enable_disp
             vehi.prmtpPatch = plotParametope(vehi.xpred{end,1}(end,prmtp_ind),vehi.xpred{end,1}(nx+1:end-1,prmtp_ind),vehi.xpred{end,1}(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch,3);
@@ -244,7 +254,7 @@ if enable_monteCarlo
     hold on;
     grid on
     view(3)
-    frame_ind = 1:floor(knum/4):knum;
+    frame_ind = 1:floor((k-1)/4):(k-1);
     [title_3frame,subtitle_3frame] = title(['Parametope Validation Sim (Monte-Carlo), N=',num2str(pred_hor)], ...
         ['k = ',num2str(frame_ind)],'Interpreter','latex');
     xlabel('$x$','Interpreter','latex');
@@ -271,7 +281,8 @@ x0 = {p10};
 
 vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);
 
-vehi_vec{1}.ctrlSt = init_MellingerCtrl(pred_hor,2,vehi_vec{1}.vehiSt);
+% vehi_vec{1}.ctrlSt = init_MellingerCtrl(pred_hor,2,vehi_vec{1}.vehiSt);
+vehi_vec{1}.ctrlSt = init_MellingerCtrl_v3(pred_hor,Ts,vehi_vec{1}.vehiSt);
 
 % === Define ops === %
 ops = sdpsettings('verbose',0);
@@ -548,7 +559,7 @@ for ind=1:size(u,2)
 
     % Calculate c just once outside of runge-kutta
     % Propagate y with parametope method
-    [eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfx0,alphs(:,ind),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
+    %[eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfx0,alphs(:,ind),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
     % Propagate y with scaling method
     % ratio = xmax./x(1:nx,k);
     % parametope_c = max(ratio(1:3));

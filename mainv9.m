@@ -51,10 +51,21 @@ ops.plot.Rspacename = '$\mathcal{G}_C$';
 sim.Ecrit.ops = ops;
 
 sim.enable_shadow = 1;
-sim.enable_disp = 0;
-sim.enable_render = 0;
+sim.enable_disp = 1;
+sim.enable_render = 1;
 sim.make_vid = 0;
 sim.load_vehi_vec = 0;
+
+sim.tI = 2; % Time till A hits C
+% === Define pA0, pAf, vAf, aAf === %
+% sim.pA0 = [5;-5;6];
+sim.pA0 = [20;-20;6];
+sim.pAf = [sim.Ecrit.q(1:2);0.1];
+% critv_ref = [-5;5;-5];
+sim.jAf = [0;0;0];
+% sim.aAf = [0;0;0];
+sim.aAf = 10*[-1;1;-1]/norm([-1;1;-1]);
+sim.vAf = sim.tI*sim.aAf;
 
 simT = sim.simT; % Sim time seconds
 Ts = sim.Ts;
@@ -69,6 +80,19 @@ disc_dt = sim.disc_dt; % Time step between Reachability discs
 prmtp_ind = sim.prmtp_ind;
 discnum = sim.discnum;
 
+tI = sim.tI;
+% === Define pA0, pAf, vAf, aAf === %
+pAf = sim.pAf;
+% critv_ref = [-5;5;-5];
+aAf = sim.aAf;
+vAf = sim.vAf;
+
+% Disturbance Variables
+wT = 5; % Disturb pulse width
+wPulse = 0; % Signals if disturb pulse is underway
+wZ = 0; % Checks whether disturb function has crossed 0
+wOn = [];
+
 % Critical Area Ellipse
 Ecrit = sim.Ecrit;
 
@@ -82,7 +106,7 @@ load_vehi_vec = sim.load_vehi_vec;
 if load_vehi_vec && exist('prmtpV8_data.mat') 
     load prmtpV8_data.mat;
 else
-    vehi_vec = init_all_vehi_local(Ts,pred_hor); % Cell vec with vehiSimStruct
+    vehi_vec = init_all_vehi_local(sim); % Cell vec with vehiSimStruct
     vehiAux_vec = vehi_vec;
 end
 numVehi = length(vehi_vec);
@@ -112,13 +136,9 @@ for ind=1:numVehi
     % === Auxilliary vehi without plots for last prediction
     vehiAux_vec{ind} = vehi;
     vehiAux_vec{ind}.grd_ind = [];
-    vehiAux_vec{ind}.grdEllip = {}; % Cell_vec with ground ellipse 
+    %vehiAux_vec{ind}.grdEllip = {}; % Cell_vec with ground ellipse 
     if ind == 1
-        % === Define Critical Area === %
-        critp_ref = [Ecrit.q(1:2);0.5];
-        % critv_ref = [-5;5;-5];
-        critv_ref = [0;0;0];
-        pts_ref = [critp_ref; critv_ref; vehi.vehiSt.x0(3*2+1:end)];
+        pts_ref = [pAf; vAf; vehi.vehiSt.x0(3*2+1:end)];
         vehi.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,pred_hor)];
 
         vehiAux_vec{ind}.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,knum)];
@@ -146,7 +166,8 @@ end
 % === Simulation === %
 telapse_total = tic;
 k=1;
-while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5 
+stop = 0;
+while k<knum && ~stop 
     % Update subtitle
     subtitle_3D.String = ['t = ',num2str(k*Ts), 's'];
     disp(['=== Computing ', num2str(k), '/', num2str(knum), ' interval ===']);
@@ -163,18 +184,50 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
         if k>1
             % === Recalculate Trajectory (for Defender only) === %
             if kVehi~=1
-                %vehi.pts_ref(:,end) = vehi_vec{1}.x(:,k);
+                %vehi.pts_ref(:,end) = vehi_vec{1}.x(:,k); 
                 vehi.pts_ref{end+1,1} = vehi_vec{1}.xpred{end,1};
+                stop = stop || norm(vehi_vec{1}.x(1:3,k)-vehi.x(1:3,k))<=3;
+            else
+                stop = stop || vehi.x(3,k)<=0;
             end
 
         end
        
         % === Real-Time === %
-        % Add disturbances!
         [vehi.xpred{end+1,1}, vehi.upred{end+1,1}, vehi.ctrlSt.auxSt] = calcNxt(vehi.x(:,k), vehi.pts_ref{end,1}, vehi, Ts, pred_hor);
         vehi.x(:,k+1) = vehi.xpred{end,1}(1:nx,2);
         vehi.u(:,k) = vehi.upred{end,1}(:,1);
         %vehi.error_track(:,k) = vehi.ctrlSt.auxSt.error_track;
+
+        if kVehi == 1
+            % Add disturbances!
+            % Disturb holds for wT timesteps
+            % Frequency scales with distance to target
+            wFreq = norm(vehi.x(1:3,k)-Ecrit.q)^2;
+            if wZ*sin(2*pi*wFreq*(k-1)*Ts) <= 0 && ~wPulse
+                wPulse = 1;
+                w = vehi.vehiSt.tauBmax*randn(3,1);
+                wD = wT;
+            end
+            wZ = sin(2*pi*wFreq*(k-1)*Ts);
+
+            if wPulse
+                vehi.u(2:end,k) = vehi.u(2:end,k) + w;
+    
+                % Clamp u to bounds
+                vehi.u(1) = min(max(vehi.u(1),vehi.vehiSt.Fmin),vehi.vehiSt.Fmax);
+                tauBnorm = norm(vehi.u(2:3));
+                if tauBnorm == 0
+                    vehi.u(2:4) = [0;0;0];
+                elseif tauBnorm > vehi.vehiSt.tauBmax
+                    scale = vehi.vehiSt.tauBmax/tauBnorm;
+                    vehi.u(2:4) = scale.*vehi.u(2:4);
+                end
+                wD = wD-1;
+                wPulse = logical(wD);
+            end
+            wOn(k) = double(wPulse);
+        end
 
         vehi_vec{kVehi} = vehi;
 
@@ -223,16 +276,12 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
                 
             end
             % Find prediction closest to ground
-            % error = vehiAux.xpred{end,1}(1:3,:)-critp_ref;
-            % [min_dist, min_ind] = min(sum(error.^2,1).^(1/2));
-            % error = vehiAux.xpred{end,1}(3,:);
-            % [min_dist, min_ind] = min(sqrt(error.^2));
             col = [];
             tol = 1e-3;
             last_xpred = vehiAux.xpred{end,1};
             if ~isempty(last_xpred)
                 while isempty(col)
-                    [~,col] = find(sqrt(sum(last_xpred(1:3,:).^2,1))<= tol);
+                    [~,col] = find(sqrt(sum(last_xpred(3,:).^2,1))<= tol);
                     tol = tol*10;
                 end
                 grd_ind = col(1);
@@ -255,15 +304,19 @@ while k<knum && norm(vehi_vec{1}.x(1:3,k)-vehi_vec{2}.x(1:3,k))>=0.5
                 wSafe = [0;0];
                 Wsafe = zeros(2);
             end
-    
+            vehiAux.grdEllip(k).w = wSafe;
+            vehiAux.grdEllip(k).W = Wsafe;
+
             if kVehi~=1
-                % Intersect Safe Area with Critical Area
-                [wSafe,Wsafe] = ellipIntersectEllip(wSafe,Wsafe,Ecrit.q(1:2),Ecrit.Q(1:2,1:2));
-                vehi.safeArea(end+1) = ellipVol(Wsafe);
+                % Intersect Defender Safe Area with Attacker Ground area
+                % [wSafe,Wsafe] = ellipIntersectEllip(wSafe,Wsafe,Ecrit.q(1:2),Ecrit.Q(1:2,1:2));
+                [wI,WI] = ellipIntersectEllip(vehiAux.grdEllip(k).w,vehiAux.grdEllip(k).W,vehiAux_vec{1}.grdEllip(k).w,vehiAux_vec{1}.grdEllip(k).W);
+                vehiAux.safeArea(end+1) = ellipVol(WI);
+            else
+                vehiAux.safeArea(end+1) = ellipVol(vehiAux.grdEllip(k).W);
             end
-            E.q = wSafe;
-            E.Q = Wsafe;
-            vehiAux.grdEllip{end+1,1} = E;
+            
+            % vehiAux.grdEllip{end+1,1} = E;
         end
 
         vehi_vec{kVehi} = vehi;
@@ -279,34 +332,56 @@ end
 % hold off;
 disp(['Total sim computing time: ', num2str(toc(telapse_total)), 's']);
 
-% Plot Error Graph
-dist_err = vehi_vec{2}.x(1:3,:)-vehi_vec{1}.x(1:3,:);
-safeArea = vehi_vec{2}.safeArea;
+% Plot Error Graph Considering multiple D
+for ind=1:numVehi
+    if ind < numVehi
+        dist_err(ind,:) = sqrt(sum((vehi_vec{ind+1}.x(1:3,1:k)-vehi_vec{1}.x(1:3,1:k)).^2,1));
+    end
+    safeArea(ind,:) = vehiAux_vec{ind}.safeArea;
+end
+% dist_err = vehi_vec{2}.x(1:3,:)-vehi_vec{1}.x(1:3,:);
+% safeAreaA = vehiAux_vec{1}.safeArea;
+% safeAreaD = vehiAux_vec{2}.safeArea;
 utrack = vehi_vec{2}.u;
 t = Ts.*(0:k-1);
+
+fig_err = figure;
+title('Performance in Area Defense',['$N_{H} = $',num2str(pred_hor)])
+subplot(2,1,1);
+grid on;
+hold on;
+title('$||p_D-p_A||_2$','Interpreter','latex')
+dplot = plot(t,dist_err,'LineWidth',1);
+for ind=1:numVehi-1
+    dplot(ind).DisplayName = ['$D_',num2str(ind),'$'];
+end
+legend('Interpreter','latex');
+hold off;
+subplot(2,1,2);
+grid on;
+hold on;
+title('$vol(\mathcal{G})$','Interpreter','latex')
+aplot = plot(t,[zeros(size(safeArea,1),1),safeArea],'LineWidth',1);
+aplot(1).DisplayName = 'A'; 
+for ind=2:numVehi
+    aplot(ind).DisplayName = ['$D_',num2str(ind-1),'$'];
+end
+legend('Interpreter','latex');
+hold off;
+% subplot(3,1,3);
+% grid on;
+% hold on;
+% plot(t,utrack(1,1:k),'LineWidth',1,'DisplayName','$F$');
+% plot(t,utrack(2,1:k),'LineWidth',1,'DisplayName','$\tau_x$');
+% plot(t,utrack(3,1:k),'LineWidth',1,'DisplayName','$\tau_y$');
+% plot(t,utrack(4,1:k),'LineWidth',1,'DisplayName','$\tau_z$');
+% xlabel('$t [s]$','Interpreter','latex');
+% legend('Interpreter','latex');
+% hold off;
+saveas(fig_err,['DvAfigs\DvAerr_multiple_disturb_N',num2str(sim.pred_hor),'.png']);
+
 figure;
-subplot(3,1,1);
-grid on;
-hold on;
-plot(t,sqrt(sum(dist_err(:,1:k).^2,1)),'DisplayName','$||p_D-p_A||_2$');
-legend('Interpreter','latex');
-hold off;
-subplot(3,1,2);
-grid on;
-hold on;
-plot(t,[0,safeArea]./ellipVol(Ecrit.Q),'DisplayName','$\mathcal{S}/\mathcal{G}_C$');
-legend('Interpreter','latex');
-hold off;
-subplot(3,1,3);
-grid on;
-hold on;
-plot(t,utrack(1,1:k),'DisplayName','$F$');
-plot(t,utrack(2,1:k),'DisplayName','$\tau_x$');
-plot(t,utrack(3,1:k),'DisplayName','$\tau_y$');
-plot(t,utrack(4,1:k),'DisplayName','$\tau_z$');
-xlabel('$t [s]$','Interpreter','latex');
-legend('Interpreter','latex');
-hold off;
+plot(wOn);
 
 % === Save Data
 vehi_save = cell(1,numVehi);
@@ -315,7 +390,7 @@ for kVehi=1:numVehi
     vehi_save{kVehi}.u = vehi_vec{kVehi}.u;
     vehi_save{kVehi}.xpred = vehi_vec{kVehi}.xpred;
     vehi_save{kVehi}.upred = vehi_vec{kVehi}.upred;
-    vehi_save{kVehi}.error_track = vehi_vec{kVehi}.error_track;
+    vehi_save{kVehi}.safeArea = vehi_vec{kVehi}.safeArea;
     vehi_save{kVehi}.pts_ref = vehi_vec{kVehi}.pts_ref;
 end
 save prmtpV9_data.mat vehi_save % Save sim results (probably can't support casadi solver)
@@ -324,29 +399,35 @@ if enable_render
     render(vehi_vec,vehiAux_vec,sim);
 end
 
-function vehi_vec = init_all_vehi_local(Ts,pred_hor)
+function vehi_vec = init_all_vehi_local(sim)
 %INIT_ALL_VEHI outputs cell vector of vehiStruct
 %   Detailed explanation goes here
+Ts = sim.Ts;
+pred_hor = sim.pred_hor;
+tI = sim.tI;
+p10 = sim.pA0;
 
 vehi_vec = cell(1,2);
 
 % Define Inital Positions
-p10 = [5;-5;6];
 % p20 = [-5;5;0];
 p20 = [-1;1;1];
-x0 = {p10, p20};
+p30 = [2;-2;1];
+x0 = {p10, p20, p30};
 
 vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);
 vehi_vec{2}.vehiSt = init_QuadDroneNMPC(x0{2},Ts);
+vehi_vec{3}.vehiSt = init_QuadDroneNMPC(x0{3},Ts);
 %vehi_vec{2}.vehiSt = init_doubleInteg3D(x0{2},Ts);
 
 % vehi_vec{1}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{1}.vehiSt);
 
-% vehi_vec{1}.ctrlSt = init_MellingerCtrl(pred_hor,2,vehi_vec{1}.vehiSt);
-vehi_vec{1}.ctrlSt = init_MellingerCtrl_v3(pred_hor,Ts,vehi_vec{1}.vehiSt);
+vehi_vec{1}.ctrlSt = init_MellingerCtrl(sim.vAf,sim.aAf,sim.jAf,pred_hor,tI,vehi_vec{1}.vehiSt);
+% vehi_vec{1}.ctrlSt = init_MellingerCtrl_v3(pred_hor,Ts,vehi_vec{1}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_NMPCctrl_v2(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 % vehi_vec{2}.ctrlSt = init_NMPCctrl_v4(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 vehi_vec{2}.ctrlSt = init_NMPCctrl_v5(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
+vehi_vec{3}.ctrlSt = init_NMPCctrl_v5(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{3}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_MellingerCtrl_v2(pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_MellingerCtrl(4,vehi_vec{2}.vehiSt);
@@ -369,6 +450,7 @@ ops.plot.edgecolor='#11F4BF';
 ops.plot.Rspacename = '$\mathcal{R}_D$';
 %ops.plot.edgecolor=[17 244 191];
 vehi_vec{2}.ops = ops;
+vehi_vec{3}.ops = ops;
 
 % === Init Plot Obs === %
 L = 0.5;
@@ -386,6 +468,7 @@ p_EB = [0;L;0];
 p_OB = [0;-L;0];
 p_vec = [p_NB; p_EB; p_SB; p_OB];
 vehi_vec{2}.p_vec = p_vec;
+vehi_vec{3}.p_vec = p_vec;
 
 end
 
@@ -626,7 +709,7 @@ fig=figure('WindowState','maximized');
 hold on;
 grid on
 view(3)
-[title_3D,subtitle_3D] = title('Adversary Two Drone Sim', ...
+[title_3D,subtitle_3D] = title('Adversary Drone Sim', ...
     't = 0 s','Interpreter','latex');
 xlabel('$x$','Interpreter','latex');
 ylabel('$y$','Interpreter','latex');
@@ -645,8 +728,6 @@ for ind=1:size(vehi_vec,2)
     vehiAux_vec{ind}.prmtpShadow = {}; % Parametope Shadow patch
     vehiAux_vec{ind}.prmtpPatch = {}; % Parametope Shadow patch
     vehi_vec{ind}.prmtpPatch = {};
-    % vehi_vec{ind}.RprmtpName = patch(NaN,NaN,NaN,'EdgeColor',vehi_vec{ind}.ops.plot.edgecolor, ...
-    %     'FaceColor', vehi_vec{ind}.ops.plot.edgecolor,'DisplayName',vehi_vec{ind}.ops.plot.Rspacename);
     handle2display(end+1) = patch(NaN,NaN,NaN,'EdgeColor',vehi_vec{ind}.ops.plot.edgecolor, ...
         'FaceColor', vehi_vec{ind}.ops.plot.edgecolor, ...
         'LineStyle',vehi_vec{ind}.ops.plot.wirestyle, ...
@@ -659,24 +740,27 @@ for ind=1:size(vehi_vec,2)
         'Facealpha',vehiAux_vec{ind}.ops.plot.shade,'DisplayName',vehiAux_vec{ind}.ops.plot.Rspacename);
 
     vehi_vec{ind}.wayptsPlot = plot3(pts_ref(1,:),pts_ref(2,:),pts_ref(3,:),'xr','DisplayName','target');
-    %vehi_vec{ind}.trajPlot = plot3(vehi_vec{ind}.traj(1,:), vehi_vec{ind}.traj(2,:), vehi_vec{ind}.traj(3,:) ,'-.k','DisplayName','r_T');
     vehi_vec{ind}.bodyPlot = vehi_vec{ind}.vehiSt.bodyPlot();
-    % vehi_vec{ind}.bodyName = 'Drone Body';
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
-
-    %handle2display = [handle2display, RprmtpName(ind)];
-    %name2display{1,end+1} = vehi_vec{ind}.bodyName;
-    %name2display{1,end+1} = vehi_vec{ind}.ops.plot.Rspacename;
 end
 axis equal
-axis manual
+% axis manual
 % ac = get(ax3D, 'Children');   %no hidden objects
 % copyobj( ac, axTop );
 % copyobj( ac, axSide );
 %legend(handle2display,'Interpreter','latex');
 knum = length(vehi_vec{1}.xpred);
-k=1;
-while k<knum 
+
+frame_ind = 1:floor((knum)/4):(knum);
+if ~make_vid
+    % Save 4 frames of figure %
+    sim_ind = frame_ind;
+else
+    sim_ind = 1:knum;
+end
+% frame = [];
+framek = 1;
+for k=sim_ind 
     % Update subtitle
     subtitle_3D.String = ['t = ',num2str(k*Ts), 's'];
 
@@ -691,7 +775,14 @@ while k<knum
         % === Update Plot === %
         plotBodyFunc = vehiSt.plotBodyFunc; 
         vehi.bodyPlot = plotBodyFunc(vehi.x(:,k), vehi.bodyPlot);
-        addpoints(vehi.pathPlot,vehi.x(1,k), vehi.x(2,k), vehi.x(3,k));
+        if k==1
+            path_ind = 1;
+        else
+            ind = find(sim_ind==k);
+            path_ind = sim_ind(ind-1):sim_ind(ind);
+            path_ind = path_ind(2:end);
+        end
+        addpoints(vehi.pathPlot,vehi.x(1,path_ind), vehi.x(2,path_ind), vehi.x(3,path_ind));
         active_shadow = vehiAux.grd_ind(k) ~= 0;
         if enable_shadow && active_shadow
                 vehiAux.prmtpShadow = plotParametope(vehiAux.xpred{k,1}(end,vehiAux.grd_ind(k)),vehiAux.xpred{k,1}(nx+1:end-1,vehiAux.grd_ind(k)),vehiAux.xpred{k,1}(1:nx,vehiAux.grd_ind(k)),nx,vehiAux.ops,vehiAux.prmtpShadow,2);
@@ -702,8 +793,6 @@ while k<knum
                 shadow_ind = [prmtp_ind(end):disc_step:vehiAux.grd_ind(k)];
                 vehiAux.prmtpPatch = plotParametope(vehiAux.xpred{k,1}(end,shadow_ind),vehiAux.xpred{k,1}(nx+1:end-1,shadow_ind),vehiAux.xpred{k,1}(1:nx,shadow_ind),nx,vehiAux.ops,vehiAux.prmtpPatch,3);
             end
-            %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
-            %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
         end
         if 0&&k==1
             axis equal
@@ -714,20 +803,30 @@ while k<knum
     end
     legend(handle2display,'Interpreter','latex');
     drawnow;
-    pause(Ts);
-    if make_vid == 1
-        frame(k) = getframe(fig);
+    %pause(Ts);
+ 
+    if ~all(frame_ind-k)
+        % Save 4 frames as figs
+        saveas(fig,['DvAfigs\DvAsim',num2str(framek),'_multiple_N',num2str(sim.pred_hor),'.png']);
+        framek = framek + 1;
+        % figs(k) = copyobj(gca,fig);
     end
-    k = k+1;
+    if make_vid == 1
+        frames(k) = getframe(fig);
+    end
 end
 hold off;
 
 if make_vid == 1
-    vid=VideoWriter('testNMPCv5withdist_with_shadow_parametope_v8.mp4','MPEG-4');
+    vid=VideoWriter(['DvAfigs\DvAvid_multiple_disturb_N',num2str(sim.pred_hor),'.mp4'],'MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
-    writeVideo(vid,frame);
+    writeVideo(vid,frames);
     close(vid);
 end
+% Save 4 frames as figs
+% for k=frame_ind
+%     saveas(figs(k),['DvAfigs\DvAsim_k',num2str(k),'_single_N',num2str(sim.pred_hor),'.png']);
+% end
 
 end

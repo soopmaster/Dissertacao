@@ -1,4 +1,4 @@
-function [ctrlSt] = init_MellingerCtrl(pred_hor,tf,vehi)
+function [ctrlSt] = init_MellingerCtrl(vf,af,jf,pred_hor,tf,vehi)
 %init_mellingerCtrl creates mellinger ctrlSt ( for parametope)
 %
 % ctrlSt : struct (struct with components of prmtp Mellinger)
@@ -27,7 +27,7 @@ ctrlSt.auxSt = auxSt;
 
 % === Specific Function Handles === %
 %ctrlSt.trajFunc = @(t,pts) quadDrone_traj(t,pts,ctrlSt);
-ctrlSt.ctrlFunc = @(x0,xs,auxSt) quadController(x0, xs, auxSt, pred_hor, tf, vehi);
+ctrlSt.ctrlFunc = @(x0,xs,auxSt) quadController(x0, xs, auxSt, vf,af,jf, tf, vehi);
 end
 
 function [u,rNxt] = trajNxtK(x0,W,tnxt,vehi,auxSt)
@@ -52,7 +52,7 @@ elseif tauBnorm > vehi.tauBmax
 end
 end
 
-function [u, auxSt] = quadController(x0, xs, auxSt, pred_hor, tf, vehi)
+function [u, auxSt] = quadController(x0, xs, auxSt, vf,af,jf, tf, vehi)
     % x0 : current state [x0; alph0]
     % xs : desired state [ps; vs; ~]
     % auxSt : contains acceleration and jerk
@@ -66,8 +66,8 @@ function [u, auxSt] = quadController(x0, xs, auxSt, pred_hor, tf, vehi)
     rd = xs(1:3);
     drd = xs(4:6);
     % In the future, let these be unknowns
-    ddrd = zeros(3,1);
-    dddrd = zeros(3,1);
+    ddrd = af;
+    dddrd = jf;
  
     r0 = x0(1:3); dr0 = x0(4:6); ddr0 = auxSt.ddr; dddr0 = auxSt.dddr;
     t0 = auxSt.t0;
