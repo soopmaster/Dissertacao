@@ -12,6 +12,7 @@
 
 close all;
 clearvars;
+set(groot,'DefaultTextInterpreter','latex');
 
 % vehiSimStruct : struct (struct with components of main sim)
 %   .vehiSt : Struct with functions and variables of model
@@ -31,7 +32,7 @@ knum = simT/Ts;
 %calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
 calc_traj_dt = Ts;
 recalc_step = calc_traj_dt/Ts;
-pred_hor = 20;
+pred_hor = 50;
 discnum = 5; % It will actually be discnum+1
 disc_step = floor(pred_hor/discnum);
 disc_dt = disc_step*Ts; % Time step between Reachability discs
@@ -39,12 +40,24 @@ prmtp_ind = [1,disc_step:disc_step:pred_hor];
 discnum = length(prmtp_ind);
 
 enable_monteCarlo = 1;
-enable_shadow = 0;
+enable_shadow = 1;
 enable_disp = 0;
 make_vid = 0;
 
+sim.tI = 2;
+sim.pA0 = [20;-20;6];
+sim.pAf = [0;0;0];
+% critv_ref = [-5;5;-5];
+sim.jAf = [0;0;0];
+% sim.aAf = [0;0;0];
+dir = [0;0;0];
+sim.aAf = dir;
+sim.vAf = dir;
+% sim.aAf = 10*dir/norm(dir);
+% sim.vAf = sim.tI*sim.aAf;
+
 % === Init vehiStruct === &
-vehi_vec = init_all_vehi_local(Ts,pred_hor); % Cell vec with vehiSimStruct
+vehi_vec = init_all_vehi_local(sim,Ts,pred_hor); % Cell vec with vehiSimStruct
 numVehi = length(vehi_vec);
 % vehi_vec{1} is assumed to be the Invader 
 
@@ -56,8 +69,8 @@ for ind=1:numVehi
     if ind == 1
         % === Define Critical Area === %
         critp_ref = [0;0;0];
-        critv_ref = [-5;5;-5];
-        % critv_ref = [0;0;0];
+        % critv_ref = [-5;5;-5];
+        critv_ref = [0;0;0];
         pts_ref = [critp_ref; critv_ref; vehi.vehiSt.x0(3*2+1:end)];
         vehi.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,pred_hor)];
     else
@@ -92,6 +105,9 @@ vehiAux.ops.plot.edgecolor = 'r'; vehiAux.ops.plot.wirestyle = '-'; vehiAux.ops.
 % MSE vec for parametope. Columns are pred step, Rows sim step
 MSE = zeros(pred_hor-1,0); 
 x_branch = {};
+
+textratio = (21.5-6)/21.5; % text to page size ratio in latex
+textratio = 0.6;
 
 % === Start Figure === %
 fig=figure('WindowState','maximized');
@@ -130,6 +146,7 @@ telapse_total = tic;
 k=1;
 % norm(vehi_vec{1}.x(1:3,k)-critp_ref)>=0.1
 stop = 0;
+framek = 1;
 while k<knum && ~stop
     % Update subtitle
     subtitle_3D.String = ['k = ',num2str(k)];
@@ -171,7 +188,7 @@ while k<knum && ~stop
             last_xpred = vehiAux.xpred{end,1};
             if ~isempty(last_xpred)
                 while isempty(col)
-                    [~,col] = find(sqrt(sum(last_xpred(1:3,:).^2,1))<= tol);
+                    [~,col] = find(sqrt(sum(last_xpred(3,:).^2,1))<= tol);
                     tol = tol*10;
                 end
                 grd_ind = col(1);
@@ -203,7 +220,7 @@ while k<knum && ~stop
             end
                 %vehi.prmtpPatch = plotParametope(vehiSt.ysim0.*ones(1,length(prmtp_ind)),vehi.xpred(nx+1:end,prmtp_ind),vehi.xpred(1:nx,prmtp_ind),nx,ops,vehi.prmtpPatch);
             %vehi.prmtpPatch = plotParametope(vehi.ypred,vehi.alphpred,vehi.xpred(:,prmtp_ind),nx,ops,vehi.prmtpPatch);
-            if k==0
+            if 0&&k==0
                 axis equal
                 axis manual
             end
@@ -216,10 +233,15 @@ while k<knum && ~stop
     disp(['Computing time for interval: ', num2str(toc(telapse_k)), 's']);
     disp('----------------');
     disp(' ');
+    fontsize(11*sqrt(2)/0.9/textratio,"points");
     drawnow;
     pause(Ts);
     if make_vid == 1
         frame(k) = getframe(fig);
+    end
+    if k==1 || k==90 ||k==117
+        exportgraphics(fig,['reachable_grd_sim',num2str(framek),'.pdf']);
+        framek = framek+1;
     end
     k = k+1;
 end
@@ -237,7 +259,7 @@ end
 
 if enable_monteCarlo
     % Plot MSE 
-    figure;
+    fig_err = figure('WindowState','maximized');
     [title_MSE,subtitle_MSE] = title('Parametope Validation MSE', ...
         'Norm of distance between Monte-Carlo predictions and Ellipsoid surface','Interpreter','latex');
     grid on;
@@ -247,10 +269,14 @@ if enable_monteCarlo
     zlabel('$MSE$','Interpreter','latex');
     surf(MSE);
     colorbar;
+    fontsize(11*sqrt(2)/0.9/textratio,"points");
     hold off;
+    exportgraphics(fig_err,['monteCarloMSE1_N',num2str(pred_hor),'.pdf']);
+    view(3);
+    exportgraphics(fig_err,['monteCarloMSE2_N',num2str(pred_hor),'.pdf']);
 
     % Plot 3 frames of Sim
-    figure
+    fig_sim = figure;
     hold on;
     grid on
     view(3)
@@ -266,10 +292,13 @@ if enable_monteCarlo
         plotParametope(vehi.xpred{ind,1}(end,prmtp_ind),vehi.xpred{ind,1}(nx+1:end-1,prmtp_ind),vehi.xpred{ind,1}(1:nx,prmtp_ind),nx,ops,{},3);
         plotMonteCarlo(x_branch{ind,1},prmtp_ind,{});
     end
+    fontsize(11*1/0.9,"points");
+    exportgraphics(fig_sim,['monteCarloSim_N',num2str(pred_hor),'.pdf']);
+    % exportgraphics(fig_sim,['reachable_grd_sim',num2str(framek),'.pdf']);
     
 end
 
-function vehi_vec = init_all_vehi_local(Ts,pred_hor)
+function vehi_vec = init_all_vehi_local(sim,Ts,pred_hor)
 %INIT_ALL_VEHI outputs cell vector of vehiStruct
 %   Detailed explanation goes here
 
@@ -278,11 +307,13 @@ vehi_vec = cell(1,1);
 % Define Inital Positions
 p10 = [5;-5;2];
 x0 = {p10};
+tI = 2;
 
 vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);
 
 % vehi_vec{1}.ctrlSt = init_MellingerCtrl(pred_hor,2,vehi_vec{1}.vehiSt);
-vehi_vec{1}.ctrlSt = init_MellingerCtrl_v3(pred_hor,Ts,vehi_vec{1}.vehiSt);
+vehi_vec{1}.ctrlSt = init_MellingerCtrl(sim.vAf,sim.aAf,sim.jAf,pred_hor,tI,vehi_vec{1}.vehiSt);
+% vehi_vec{1}.ctrlSt = init_MellingerCtrl_v3(pred_hor,Ts,vehi_vec{1}.vehiSt);
 
 % === Define ops === %
 ops = sdpsettings('verbose',0);
@@ -494,7 +525,7 @@ for k=1:size(x,2)-1
     
     % Calculate c just once outside of runge-kutta
     % Propagate y with parametope method
-    [eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfxo,alph_vec(:,k),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
+    %[eig_prmtp_c_vec,eig_parametope_c] = prmtpEllips_c(vehiSt.rStrt,vehiSt.symvars,vbds_ext,-Dfxo,alph_vec(:,k),nx,vehiSt.rCode,vehiSt.rHasVarMx,vehiSt.rConstDfMx);
     % Propagate y with scaling method
     % ratio = xmax./x(1:nx,k);
     % parametope_c = max(ratio(1:3));

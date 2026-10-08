@@ -32,16 +32,21 @@ sim.knum = sim.simT/sim.Ts;
 %calc_traj_dt = 0.1; % How often trajectory is recalculated [s]
 sim.calc_traj_dt = sim.Ts;
 sim.recalc_step = sim.calc_traj_dt/sim.Ts;
-sim.pred_hor = 20;
+sim.pred_hor = 50;
 sim.discnum = 5;
 sim.disc_step = floor(sim.pred_hor/sim.discnum);
 sim.disc_dt = sim.disc_step*sim.Ts; % Time step between Reachability discs
 sim.prmtp_ind = [1,sim.disc_step:sim.disc_step:sim.pred_hor];
 sim.discnum = length(sim.prmtp_ind);
+sim.vid_name = ['DvAvid_N',num2str(sim.pred_hor)];
+sim.fig_name = ['DvAfig_N',num2str(sim.pred_hor)];
+sim.err_name = ['DvAerr_N',num2str(sim.pred_hor)];
+sim.wOn = 0;
 
 % Critical Area Ellipse
 sim.Ecrit.q = [0;0;0];
-sim.Ecrit.Q = eye(3);
+sim.Ecrit.r = 2;
+sim.Ecrit.Q = sim.Ecrit.r^2.*eye(3);
 ops.plot.shade = 0.5;
 ops.plot.linewidth=0.5;
 ops.plot.wirestyle='-';
@@ -64,8 +69,15 @@ sim.pAf = [sim.Ecrit.q(1:2);0.1];
 % critv_ref = [-5;5;-5];
 sim.jAf = [0;0;0];
 % sim.aAf = [0;0;0];
-sim.aAf = 10*[-1;1;-1]/norm([-1;1;-1]);
+dir = [-1;1;-1];
+sim.aAf = 10*dir/norm(dir);
 sim.vAf = sim.tI*sim.aAf;
+
+% Define Inital Positions
+p20 = [2;2;1];
+p30 = [-5;-2;1];
+sim.x0 = {sim.pA0, p20};
+sim.Dnum = length(sim.x0)-1;
 
 simT = sim.simT; % Sim time seconds
 Ts = sim.Ts;
@@ -111,6 +123,22 @@ else
 end
 numVehi = length(vehi_vec);
 % vehi_vec{1} is assumed to be the Invader 
+if sim.Dnum > 1
+    % Multi-defender scenario
+    sim.vid_name = [sim.vid_name,'_m'];
+    sim.fig_name = [sim.fig_name,'_m'];
+    sim.err_name = [sim.err_name,'_m'];
+else
+    sim.vid_name = [sim.vid_name,'_s'];
+    sim.fig_name = [sim.fig_name,'_s'];
+    sim.err_name = [sim.err_name,'_s'];
+end
+if sim.wOn
+    % Attacker Disturb on
+    sim.vid_name = [sim.vid_name,'_unp'];
+    sim.fig_name = [sim.fig_name,'_unp'];
+    sim.err_name = [sim.err_name,'_unp'];
+end
 
 for ind=1:numVehi
     vehi = vehi_vec{ind};
@@ -132,6 +160,7 @@ for ind=1:numVehi
 
     %vehi.error_track = [];
     vehi.safeArea = [];
+    vehi.w = zeros(3,1);
 
     % === Auxilliary vehi without plots for last prediction
     vehiAux_vec{ind} = vehi;
@@ -143,14 +172,14 @@ for ind=1:numVehi
 
         vehiAux_vec{ind}.pts_ref{1} = [vehi.vehiSt.x0, repmat(pts_ref,1,knum)];
         vehiAux_vec{ind}.ops.plot.edgecolor = 'r'; vehiAux_vec{ind}.ops.plot.wirestyle = '-'; vehiAux_vec{ind}.ops.plot.linewidth = 0.5;
-        vehiAux_vec{ind}.ops.plot.Rspacename = '$\mathcal{G}_A$';
+        vehiAux_vec{ind}.ops.plot.Rspacename = '$\Psi$';
     else
         pts_ref = repmat([vehi_vec{1}.vehiSt.x0;m2v(vehi_vec{1}.vehiSt.alph0);vehi_vec{1}.vehiSt.ysim0],1,pred_hor);
         vehi.pts_ref{1} = pts_ref;
 
         vehiAux_vec{ind}.pts_ref{1} = repmat(pts_ref(:,1),1,pred_hor);
         vehiAux_vec{ind}.ops.plot.edgecolor = 'g'; vehiAux_vec{ind}.ops.plot.wirestyle = '-'; vehiAux_vec{ind}.ops.plot.linewidth = 0.5;
-        vehiAux_vec{ind}.ops.plot.Rspacename = '$\mathcal{S}$';
+        vehiAux_vec{ind}.ops.plot.Rspacename = '$\Upsilon$';
 
         %vehi.pts_ref = repmat(vehi.vehiSt.x0,1,pred_hor+1);
     end
@@ -167,6 +196,7 @@ end
 telapse_total = tic;
 k=1;
 stop = 0;
+
 while k<knum && ~stop 
     % Update subtitle
     subtitle_3D.String = ['t = ',num2str(k*Ts), 's'];
@@ -193,41 +223,38 @@ while k<knum && ~stop
 
         end
        
-        % === Real-Time === %
-        [vehi.xpred{end+1,1}, vehi.upred{end+1,1}, vehi.ctrlSt.auxSt] = calcNxt(vehi.x(:,k), vehi.pts_ref{end,1}, vehi, Ts, pred_hor);
-        vehi.x(:,k+1) = vehi.xpred{end,1}(1:nx,2);
-        vehi.u(:,k) = vehi.upred{end,1}(:,1);
-        %vehi.error_track(:,k) = vehi.ctrlSt.auxSt.error_track;
-
-        if kVehi == 1
+        if sim.wOn && kVehi == 1 
             % Add disturbances!
+            % Changes desired position
             % Disturb holds for wT timesteps
             % Frequency scales with distance to target
             wFreq = norm(vehi.x(1:3,k)-Ecrit.q)^2;
             if wZ*sin(2*pi*wFreq*(k-1)*Ts) <= 0 && ~wPulse
                 wPulse = 1;
-                w = vehi.vehiSt.tauBmax*randn(3,1);
+                % w = vehi.vehiSt.tauBmax*randn(3,1);
+                waux = [randn(2,1);0];
+                w = sim.Ecrit.r.*waux/norm(waux);
                 wD = wT;
             end
             wZ = sin(2*pi*wFreq*(k-1)*Ts);
 
             if wPulse
-                vehi.u(2:end,k) = vehi.u(2:end,k) + w;
-    
-                % Clamp u to bounds
-                vehi.u(1) = min(max(vehi.u(1),vehi.vehiSt.Fmin),vehi.vehiSt.Fmax);
-                tauBnorm = norm(vehi.u(2:3));
-                if tauBnorm == 0
-                    vehi.u(2:4) = [0;0;0];
-                elseif tauBnorm > vehi.vehiSt.tauBmax
-                    scale = vehi.vehiSt.tauBmax/tauBnorm;
-                    vehi.u(2:4) = scale.*vehi.u(2:4);
-                end
                 wD = wD-1;
                 wPulse = logical(wD);
+            else
+                w = zeros(3,1);
             end
-            wOn(k) = double(wPulse);
+            wOn(:,k) = w(1:3);
+            vehi.w = w;
+            % w = [w;zeros(size(vehi.pts_ref{end,1},1)-3,1)];
+            % vehi.pts_ref{end,1} = vehi.pts_ref{end,1} + [w;zeros(size(vehi.pts_ref{end,1},1)-3,1)];
         end
+        % === Real-Time === %
+        wFull = [vehi.w;zeros(size(vehi.pts_ref{end,1},1)-3,1)];
+        [vehi.xpred{end+1,1}, vehi.upred{end+1,1}, vehi.ctrlSt.auxSt] = calcNxt(vehi.x(:,k), vehi.pts_ref{end,1} + wFull, vehi, Ts, pred_hor);
+        vehi.x(:,k+1) = vehi.xpred{end,1}(1:nx,2);
+        vehi.u(:,k) = vehi.upred{end,1}(:,1);
+        %vehi.error_track(:,k) = vehi.ctrlSt.auxSt.error_track;
 
         vehi_vec{kVehi} = vehi;
 
@@ -345,7 +372,8 @@ end
 utrack = vehi_vec{2}.u;
 t = Ts.*(0:k-1);
 
-fig_err = figure;
+textratio = 0.6;
+fig_err = figure('WindowState','maximized');
 title('Performance in Area Defense',['$N_{H} = $',num2str(pred_hor)])
 subplot(2,1,1);
 grid on;
@@ -367,21 +395,24 @@ for ind=2:numVehi
     aplot(ind).DisplayName = ['$D_',num2str(ind-1),'$'];
 end
 legend('Interpreter','latex');
+% fontsize(10,"points");
+fontsize(11*sqrt(2)/0.9/textratio,"points");
 hold off;
-% subplot(3,1,3);
-% grid on;
-% hold on;
-% plot(t,utrack(1,1:k),'LineWidth',1,'DisplayName','$F$');
-% plot(t,utrack(2,1:k),'LineWidth',1,'DisplayName','$\tau_x$');
-% plot(t,utrack(3,1:k),'LineWidth',1,'DisplayName','$\tau_y$');
-% plot(t,utrack(4,1:k),'LineWidth',1,'DisplayName','$\tau_z$');
-% xlabel('$t [s]$','Interpreter','latex');
-% legend('Interpreter','latex');
-% hold off;
-saveas(fig_err,['DvAfigs\DvAerr_multiple_disturb_N',num2str(sim.pred_hor),'.png']);
+% savepdf(fig_err);
+exportgraphics(fig_err,['DvAfigs\',sim.err_name,'.pdf']);
+% saveas(fig_err,['DvAfigs\',sim.err_name,'.pdf']);
 
 figure;
-plot(wOn);
+hold on;
+title('Diturbance On')
+hold off;
+plot(sqrt(sum(wOn.^2,1)));
+
+figure;
+hold on;
+title('Thrust force')
+hold off;
+plot(vehi_vec{2}.u(1,1:k))
 
 % === Save Data
 vehi_save = cell(1,numVehi);
@@ -405,29 +436,24 @@ function vehi_vec = init_all_vehi_local(sim)
 Ts = sim.Ts;
 pred_hor = sim.pred_hor;
 tI = sim.tI;
-p10 = sim.pA0;
+Dnum = sim.Dnum;
+x0 = sim.x0;
 
-vehi_vec = cell(1,2);
-
-% Define Inital Positions
-% p20 = [-5;5;0];
-p20 = [-1;1;1];
-p30 = [2;-2;1];
-x0 = {p10, p20, p30};
+vehi_vec = cell(1,1+Dnum);
 
 vehi_vec{1}.vehiSt = init_QuadDroneNMPC(x0{1},Ts);
-vehi_vec{2}.vehiSt = init_QuadDroneNMPC(x0{2},Ts);
-vehi_vec{3}.vehiSt = init_QuadDroneNMPC(x0{3},Ts);
+vehi_vec{1}.ctrlSt = init_MellingerCtrl(sim.vAf,sim.aAf,sim.jAf,pred_hor,tI,vehi_vec{1}.vehiSt);
+for k=2:Dnum+1
+    vehi_vec{k}.vehiSt = init_QuadDroneNMPC(x0{k},Ts);
+    vehi_vec{k}.ctrlSt = init_NMPCctrl_v5(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{k}.vehiSt);
+end
 %vehi_vec{2}.vehiSt = init_doubleInteg3D(x0{2},Ts);
 
 % vehi_vec{1}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,5,Ts,vehi_vec{1}.vehiSt);
 
-vehi_vec{1}.ctrlSt = init_MellingerCtrl(sim.vAf,sim.aAf,sim.jAf,pred_hor,tI,vehi_vec{1}.vehiSt);
 % vehi_vec{1}.ctrlSt = init_MellingerCtrl_v3(pred_hor,Ts,vehi_vec{1}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_NMPCctrl_v2(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 % vehi_vec{2}.ctrlSt = init_NMPCctrl_v4(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
-vehi_vec{2}.ctrlSt = init_NMPCctrl_v5(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
-vehi_vec{3}.ctrlSt = init_NMPCctrl_v5(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{3}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_NMPCctrl(vehi_vec{1}.vehiSt.nx,pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_MellingerCtrl_v2(pred_hor,Ts,vehi_vec{2}.vehiSt);
 %vehi_vec{2}.ctrlSt = init_MellingerCtrl(4,vehi_vec{2}.vehiSt);
@@ -438,7 +464,7 @@ ops.plot.shade = 0.15;
 ops.plot.linewidth=0.05;
 ops.plot.wirestyle=':';
 ops.plot.edgecolor='#EB4B2D';
-ops.plot.Rspacename = '$\mathcal{R}_A$';
+ops.plot.Rspacename = '$\mathcal{A}$';
 %ops.plot.edgecolor=[235 75 45];
 vehi_vec{1}.ops = ops;
 
@@ -447,10 +473,8 @@ ops.plot.shade = 0.15;
 ops.plot.linewidth=0.05;
 ops.plot.wirestyle=':';
 ops.plot.edgecolor='#11F4BF';
-ops.plot.Rspacename = '$\mathcal{R}_D$';
+ops.plot.Rspacename = '$\mathcal{D}$';
 %ops.plot.edgecolor=[17 244 191];
-vehi_vec{2}.ops = ops;
-vehi_vec{3}.ops = ops;
 
 % === Init Plot Obs === %
 L = 0.5;
@@ -467,8 +491,10 @@ p_SB = [-L;0;0];
 p_EB = [0;L;0];
 p_OB = [0;-L;0];
 p_vec = [p_NB; p_EB; p_SB; p_OB];
-vehi_vec{2}.p_vec = p_vec;
-vehi_vec{3}.p_vec = p_vec;
+for k=2:Dnum+1
+    vehi_vec{k}.ops = ops;
+    vehi_vec{k}.p_vec = p_vec;
+end
 
 end
 
@@ -548,6 +574,7 @@ end
 function [xpred, u, auxSt] = calcNxt(xk, xd, vehi, Ts, pred_hor)
 % Calculate next step for vehi from x0 to xd
 % Also Compute prediction
+% d : disturbance to input
 vehiSt = vehi.vehiSt;
 ctrlSt = vehi.ctrlSt;
 auxSt = ctrlSt.auxSt;
@@ -569,6 +596,7 @@ u_max = [vehiSt.vbds_init(nx+1,2); zeros(3,1)];
 
 % === Calculate Control action === %
 [u,auxSt] = ctrlSt.ctrlFunc(xk(:,1), xd, auxSt);
+%u(:,1) = u(:,1)+[0;d]; % Add distubances
 
 % === Calculate System === %
 for ind=1:size(u,2)
@@ -666,7 +694,7 @@ for k=1:size(p_vec,2)
             [w,W] = ellipIntersectHyp(w,W,[0;0;1],0);
         end
         
-        [~,~,x_opt,K] = ellipPoints(w,W,50);
+        [~,~,x_opt,K] = ellipPoints(w,W,100);
     
         if isempty(patch_vec)
             p = patch('Vertices', x_opt','Faces',K,'FaceColor', ops.plot.edgecolor);
@@ -701,7 +729,7 @@ make_vid = sim.make_vid;
 Ecrit = sim.Ecrit;
 
 % === Start Figure === %
-fig=figure('WindowState','maximized');
+fig=figure('WindowState','normal');
 % ax3D = subplot(2,2,[1 3]);
 % axTop = subplot(2,2,2);
 % axSide = subplot(2,2,4);
@@ -744,14 +772,15 @@ for ind=1:size(vehi_vec,2)
     vehi_vec{ind}.pathPlot = animatedline(vehi_vec{ind}.x(1,1), vehi_vec{ind}.x(2,1), vehi_vec{ind}.x(3,1),'LineWidth',2.5, 'Color','b','LineStyle','-','DisplayName','Path');
 end
 axis equal
-% axis manual
+axis manual
 % ac = get(ax3D, 'Children');   %no hidden objects
 % copyobj( ac, axTop );
 % copyobj( ac, axSide );
 %legend(handle2display,'Interpreter','latex');
 knum = length(vehi_vec{1}.xpred);
 
-frame_ind = 1:floor((knum)/4):(knum);
+%frame_ind = 1:floor((knum)/4):(knum);
+frame_ind = floor(linspace(1,knum,4));
 if ~make_vid
     % Save 4 frames of figure %
     sim_ind = frame_ind;
@@ -760,6 +789,7 @@ else
 end
 % frame = [];
 framek = 1;
+textratio = 0.6;
 for k=sim_ind 
     % Update subtitle
     subtitle_3D.String = ['t = ',num2str(k*Ts), 's'];
@@ -802,12 +832,15 @@ for k=sim_ind
         vehiAux_vec{kVehi} = vehiAux;
     end
     legend(handle2display,'Interpreter','latex');
+    fontsize(24,"points");
+    % fontsize(11*sqrt(2)/0.9/textratio,"points");
     drawnow;
     %pause(Ts);
  
     if ~all(frame_ind-k)
         % Save 4 frames as figs
-        saveas(fig,['DvAfigs\DvAsim',num2str(framek),'_multiple_N',num2str(sim.pred_hor),'.png']);
+        exportgraphics(fig,['DvAfigs\',sim.fig_name,num2str(framek),'.pdf']);
+        %saveas(fig,['DvAfigs\',sim.fig_name,num2str(framek),'.pdf']);
         framek = framek + 1;
         % figs(k) = copyobj(gca,fig);
     end
@@ -818,7 +851,7 @@ end
 hold off;
 
 if make_vid == 1
-    vid=VideoWriter(['DvAfigs\DvAvid_multiple_disturb_N',num2str(sim.pred_hor),'.mp4'],'MPEG-4');
+    vid=VideoWriter(['DvAfigs\',sim.vid_name,'.mp4'],'MPEG-4');
     vid.FrameRate=1/Ts;
     open(vid);
     writeVideo(vid,frames);
@@ -830,3 +863,4 @@ end
 % end
 
 end
+

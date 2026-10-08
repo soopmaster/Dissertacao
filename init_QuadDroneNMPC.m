@@ -143,7 +143,7 @@ Df = jacobian(dxsym, xsym);
 
 % === Bounds of state and input variables == %
 % Fmax = 20;
-Fmax = 30;
+Fmax = 50;
 vehiStruct.Fmax = Fmax;
 Fmin = 0.0001;
 vehiStruct.Fmin = Fmin;
@@ -185,6 +185,7 @@ end
 function bodyPlotSt = initBodyPlot(Xvec,Yvec,Zvec,p0)
 bodyPlotSt.patch = patch(Xvec+p0(1), Yvec+p0(2), Zvec+p0(3), [0 0 1]);
 bodyPlotSt.quiver = quiver3(p0(1),p0(2),p0(3), 0,0,1, 'LineWidth',1,'Color','k');
+bodyPlotSt.xproj = plot3([p0(1), p0(1)],[p0(2), p0(2)],[p0(3), 0],'--diamondk');
 end
 
 function bodyPlotSt = quadDrone_plotBody(x,bodyPlotSt,p_vec)
@@ -208,6 +209,11 @@ uvw = R*[0;0;1];
 bodyPlotSt.quiver.UData = uvw(1);
 bodyPlotSt.quiver.VData = uvw(2);
 bodyPlotSt.quiver.WData = uvw(3);
+
+% Update xproj
+bodyPlotSt.xproj.XData = [x(1), x(1)];
+bodyPlotSt.xproj.YData = [x(2), x(2)];
+bodyPlotSt.xproj.ZData = [x(3), 0];
 
 end
 

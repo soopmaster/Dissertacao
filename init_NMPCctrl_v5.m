@@ -52,8 +52,9 @@ g = [g; xk-P(1:nx)]; % Initial condition constraints
 ysD = P(x0size+(1:ysDsize*N));
 ellipsA = v2m(P(x0size + ysDsize*N+1:end),ellipsAsize);
 Obj = Jfunc(X,ellipsA,U,ysD,DKL_DA,ny); % Get Cost Function
-obj = Obj.obj_DKL_AD + Obj.obj_u - Obj.obj_DKL_DA + Obj.obj_Ed + Obj.obj_d;
+obj = Obj.obj_DKL_AD + Obj.obj_u - Obj.obj_DKL_DA + Obj.obj_Ed;
 % obj = Obj.obj_DKL_AD + Obj.obj_u + Obj.obj_Ed + Obj.obj_d;
+% obj = Obj.obj_d;
 
 for k=1:N
     xk = X(:,k);
@@ -200,8 +201,8 @@ Qd = exp(steep*(k-N+log(KN-K0)/steep)) + K0; % starts small, goes up
 R = 0.000000000001;
 Qm = 1; % Shape Matrix weight
 Qda = 10; % DKL(D||A)
-Qad = 1000; % DKL(A||D)
-Qe = 500; % Minimum distance
+Qad = 100; % DKL(A||D)
+Qe = 1000; % Minimum distance
 Qd = 50; % Final distance
 
 KK.Qd = Qd; KK.R = R; KK.Qm = Qm; KK.Qda = Qda; KK.Qad = Qad; KK.Qe = Qe; KK.Qd = Qd;
@@ -278,7 +279,7 @@ obj_DKL_DA = Qda*unsObj_DKL_DA;
 unsObj_DKL_AD = LSE(LSE_coef,DKL_AD) % Subtract what tends to be the largest value
 obj_DKL_AD = Qad*unsObj_DKL_AD;
 
-unsObj_Ed = LSE(LSE_coef,Ed)^2
+unsObj_Ed = LSE(LSE_coef,Ed)
 obj_Ed = Qe*unsObj_Ed;
 
 Obj.obj_d = obj_dist;
