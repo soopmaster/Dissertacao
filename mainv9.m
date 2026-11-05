@@ -13,6 +13,18 @@
 close all;
 clearvars;
 
+set(groot,'DefaultTextInterpreter','latex');
+set(groot,'DefaultAxesTickLabelInterpreter','latex');
+set(groot,'DefaultColorBarTickLabelInterpreter','latex');
+set(groot,'DefaultTextFontname', 'CMU Serif');
+set(groot,'DefaultAxesFontName', 'CMU Serif');
+
+textratio = (21.5-6)/21.5; % text to page size ratio in latex
+textratio = 0.9;
+repFontSize = 10;
+fontsizeOneCol = repFontSize*sqrt(2)/0.9/textratio*2;
+%fontsizeTwoCol = 
+
 % vehiSimStruct : struct (struct with components of main sim)
 %   .vehiSt : Struct with functions and variables of model
 %   .ctrlSt : Struct with functions and variables of controller
@@ -396,7 +408,7 @@ for ind=2:numVehi
 end
 legend('Interpreter','latex');
 % fontsize(10,"points");
-fontsize(11*sqrt(2)/0.9/textratio,"points");
+fontsize(fontsizeOneCol,"points");
 hold off;
 % savepdf(fig_err);
 exportgraphics(fig_err,['DvAfigs\',sim.err_name,'.pdf']);
