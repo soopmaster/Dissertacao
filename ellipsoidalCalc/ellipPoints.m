@@ -25,5 +25,6 @@ X.type = [2];
 % x_opt = plot(Fc,p(1:3),ops.plot.edgecolor,50,ops);
 x_opt = plot(Fc,p(1:nx),'k',N);
 x_opt = x_opt{end};
-K = convhulln(x_opt');
+%K = convhulln(x_opt');
+K = convhull(x_opt',Simplify=true);
 end

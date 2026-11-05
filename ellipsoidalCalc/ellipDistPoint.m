@@ -22,6 +22,11 @@ else
 end
 
 rp = sqrt((p-q)'*inv(Q)*(p-q));
+if r>=rp
+    sign = 1; % p is in ellip
+else
+    sign = -1; % p is out of ellip
+end
 
-d = norm(p*(1-r/rp));
+d = sign*norm((p-q)*(1-r/rp));
 end
