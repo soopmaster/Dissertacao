@@ -283,9 +283,11 @@ if enable_monteCarlo
     ylabel('$k_{pred}$','Interpreter','latex');
     %zlabel('$MSE$','Interpreter','latex');
     surf(vehi.ME);
-    colorbar;
-    fontsize(fontsizeOneCol,"points");
     view(3);
+    fontsize(fontsizeOneCol,"points");
+    colorbar;
+    %ax = gca;
+    %ax.XTickLabel{end} = '';
     hold off;
     exportgraphics(fig_Perr,['MonteCarlofigs\monteCarloME_N',num2str(pred_hor),'.pdf']);
     
@@ -298,9 +300,11 @@ if enable_monteCarlo
     ylabel('$k_{pred}$','Interpreter','latex');
     %zlabel('$MSE$','Interpreter','latex');
     surf(vehi.VolE);
-    colorbar;
-    fontsize(fontsizeOneCol,"points");
     view(3);
+    fontsize(fontsizeOneCol,"points");
+    colorbar;
+    %ax = gca;
+    %ax.XTickLabel{end} = '';
     hold off;
     exportgraphics(fig_Verr,['MonteCarlofigs\monteCarloVolE_N',num2str(pred_hor),'.pdf']);
 
@@ -686,6 +690,71 @@ function traj = plotTraj(x, traj)
 end
 
 function MCplot = plotMonteCarlo(x_branch,prmtp_ind,MCplot_old)
+% MCplot has two components: The branch plots, which will be 26 lines, and
+% the leaf plots which will be N scatter plots (N is number of plotted
+% ellipsoids)
+
+% x_branch{1} : contains all branch samples at k=1
+% x_leaf{1} : contains all leaf samples at k=1
+
+nx = size(x_branch{1},1);
+
+knum_branch = size(x_branch,1);
+%knum_leaf = size(x_leaf,1);
+num_branch = size(x_branch{1},2);
+%num_leaf = size(x_leaf{1},2);
+
+% Reshape x_branch so that each cell contains all samples of a branch instead
+x_branchaux = cell(num_branch,1);
+for k_br=1:num_branch
+    x_branchaux{k_br,1} = zeros(nx,knum_branch);
+    for k_t=1:knum_branch
+        x_branchaux{k_br,1}(:,k_t) = x_branch{k_t,1}(:,k_br);
+    end
+end
+x_branch = x_branchaux;
+
+% create a default color map ranging from red to light pink
+color_start = [1, 0, 0];
+color_end = [255, 192, 203]/255;
+
+if isempty(MCplot_old)
+    MCplot.monteCarloPlot = struct;
+    MCplot.monteCarloPlot.branch = cell(num_branch,1);
+    %MCplot.monteCarloPlot.leaf = cell(knum_leaf,1);
+    % Create MonteCarlo branch plots
+    colorMapLength = knum_branch;
+    colors_p = [linspace(color_start(1),color_end(1),colorMapLength)', linspace(color_start(2),color_end(2),colorMapLength)', linspace(color_start(3),color_end(3),colorMapLength)'];
+    for k_br=1:num_branch
+        MCplot.monteCarloPlot.branch{k_br,1} = plot3(zeros(1,knum_branch), zeros(1,knum_branch), zeros(1,knum_branch),'LineWidth',0.05, 'Color',[21,155,81]/255,'LineStyle','-', ...
+            'Marker','*','MarkerIndices',prmtp_ind+1,'MarkerSize',0.1,'MarkerEdgeColor','r','DisplayName','');
+    end
+    % % Create MonteCarlo leaf plots
+    % colorMapLength = knum_leaf;
+    % colors_p = [linspace(color_start(1),color_end(1),colorMapLength)', linspace(color_start(2),color_end(2),colorMapLength)', linspace(color_start(3),color_end(3),colorMapLength)'];
+    % for k=1:knum_leaf
+    %     MCplot.monteCarloPlot.leaf{k,1} = plot3(zeros(1,num_leaf), zeros(1,num_leaf), zeros(1,num_leaf),'LineWidth',0.05, 'Color','r','LineStyle','none','Marker','*','DisplayName','');
+    % end
+else
+    MCplot = MCplot_old;
+end
+
+% Update branch plots
+for k=1:num_branch
+    MCplot.monteCarloPlot.branch{k,1}.XData = x_branch{k,1}(1,:);
+    MCplot.monteCarloPlot.branch{k,1}.YData = x_branch{k,1}(2,:);
+    MCplot.monteCarloPlot.branch{k,1}.ZData = x_branch{k,1}(3,:);
+end
+% % Update leaf plots
+% for k=1:knum_leaf
+%     MCplot.monteCarloPlot.leaf{k,1}.XData = x_leaf{k,1}(1,:);
+%     MCplot.monteCarloPlot.leaf{k,1}.YData = x_leaf{k,1}(2,:);
+%     MCplot.monteCarloPlot.leaf{k,1}.ZData = x_leaf{k,1}(3,:);
+% end
+
+end
+
+function MCplot = plotMonteCarlo2(x_branch,prmtp_ind,MCplot_old)
 % MCplot has two components: The branch plots, which will be 26 lines, and
 % the leaf plots which will be N scatter plots (N is number of plotted
 % ellipsoids)
